@@ -78,3 +78,11 @@ def test_paper_only_guard_rejects_lookalike(monkeypatch):
 def test_default_url_is_paper(monkeypatch):
     monkeypatch.delenv("ALPACA_TRADING_URL", raising=False)
     assert config.alpaca_trading_url().startswith("https://paper-api.")
+
+
+def test_key_hint_never_leaks_key(monkeypatch):
+    monkeypatch.setenv("ALPACA_API_KEY", "AKSECRETVALUE123\n")
+    monkeypatch.setenv("ALPACA_API_SECRET", "s" * 40)
+    hint = config.describe_alpaca_key()
+    assert "LIVE key" in hint and "SECRETVALUE" not in hint and "length 16" in hint
+    assert config.alpaca_api_key() == "AKSECRETVALUE123"

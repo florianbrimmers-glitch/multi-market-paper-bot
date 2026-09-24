@@ -35,11 +35,21 @@ def decision_log_path() -> str:
 
 
 def alpaca_api_key() -> str:
-    return os.environ["ALPACA_API_KEY"]
+    # strip(): pasted secrets often carry a trailing newline or space.
+    return os.environ["ALPACA_API_KEY"].strip()
 
 
 def alpaca_api_secret() -> str:
-    return os.environ["ALPACA_API_SECRET"]
+    return os.environ["ALPACA_API_SECRET"].strip()
+
+
+def describe_alpaca_key() -> str:
+    """Non-secret hint for auth errors: key prefix and lengths only, never the key itself."""
+    key = os.environ.get("ALPACA_API_KEY", "").strip()
+    secret = os.environ.get("ALPACA_API_SECRET", "").strip()
+    kind = {"PK": "paper key", "AK": "LIVE key — not valid on the paper endpoint"}.get(key[:2], "unrecognised prefix")
+    return (f"ALPACA_API_KEY starts with {key[:2]!r} ({kind}), length {len(key)}; "
+            f"ALPACA_API_SECRET length {len(secret)}")
 
 
 def alpaca_trading_url() -> str:

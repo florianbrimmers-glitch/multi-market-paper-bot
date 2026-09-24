@@ -38,6 +38,11 @@ class AlpacaBroker(BrokerAdapter):
 
     def get_account(self) -> Account:
         r = self._client.get("/v2/account")
+        if r.status_code in (401, 403):
+            raise PermissionError(
+                f"Alpaca paper API rejected the credentials (HTTP {r.status_code}). "
+                f"{config.describe_alpaca_key()}. Use keys generated under the PAPER account; "
+                "key ID and secret must not be swapped.")
         r.raise_for_status()
         d = r.json()
         return Account(equity=float(d["equity"]), cash=float(d["cash"]),
