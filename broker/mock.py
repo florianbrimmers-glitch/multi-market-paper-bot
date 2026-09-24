@@ -1,7 +1,8 @@
 """In-memory broker for offline tests and the backtester. No network, deterministic.
 
-Market orders fill at the current price. STOP orders rest until trigger_stops() sees a low at
-or below the stop price — like a real broker, not instantly.
+Market orders fill at the current price. STOP / STOP_LIMIT orders rest until trigger_stops()
+sees a low at or below the stop price — like a real broker, not instantly. An entry with
+`stop_loss` attaches a resting stop once it fills (Alpaca OTO behaviour).
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ class MockBroker(BrokerAdapter):
         self._ids = itertools.count(1)
         self.orders: list[Order] = []
         self.resting: list[Order] = []
+        self.market_open = True
 
     def set_price(self, symbol: str, price: float) -> None:
         k = _key(symbol)
@@ -39,6 +41,12 @@ class MockBroker(BrokerAdapter):
 
     def get_positions(self) -> dict[str, Position]:
         return dict(self._positions)
+
+    def get_open_orders(self) -> list[Order]:
+        return list(self.resting)
+
+    def is_market_open(self) -> bool:
+        return self.market_open
 
     def _fill(self, order: Order, price: float) -> Order:
         k = _key(order.symbol)
@@ -66,10 +74,14 @@ class MockBroker(BrokerAdapter):
     def submit_order(self, order: Order) -> Order:
         order.id = str(next(self._ids))
         self.orders.append(order)
-        if order.type == OrderType.STOP:
+        if order.type in (OrderType.STOP, OrderType.STOP_LIMIT):
             self.resting.append(order)
             return order
-        return self._fill(order, self._prices.get(_key(order.symbol), 0.0))
+        self._fill(order, self._prices.get(_key(order.symbol), 0.0))
+        if order.stop_loss is not None:
+            self.submit_order(Order(symbol=order.symbol, side=Side.SELL, qty=order.qty,
+                                    type=OrderType.STOP, stop_price=order.stop_loss))
+        return order
 
     def trigger_stops(self, symbol: str, bar_low: float) -> list[Order]:
         """Fill resting stops for `symbol` whose stop price was touched by `bar_low`."""

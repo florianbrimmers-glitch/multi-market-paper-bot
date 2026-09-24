@@ -22,15 +22,20 @@ engine, a backtester, and daily morning/night briefs written by Claude. It runs 
 | Oil | `USO` | Trend following | 4 hour |
 
 **Risk controls applied to every trade:**
-- **Protective stop.** Each entry gets a resting stop order. It is never placed more than 1%
-  below the entry price (`MAX_STOP_PCT`).
+- **Protective stop.** It is never placed more than 1% below the entry price
+  (`MAX_STOP_PCT`), and it stays active across days (`gtc`). ETF entries carry the stop as a
+  linked (OTO) order, which becomes active only once the buy fills. Bitcoin can't use OTO on
+  Alpaca, so its stop is placed as a stop-limit order right after the fill. On every tick, a
+  safety check also adds a stop to any open position that doesn't have one.
 - **Volatility-based sizing.** Each trade risks 0.5% of equity (`RISK_PER_TRADE_PCT`). The stop
   distance comes from ATR, and position size is also capped at 25% of equity
   (`MAX_POSITION_PCT`) and by available buying power.
 - **Correlation filter.** SPY and QQQ can't both be long at the same time.
 
 **Limitations:**
-- The ETFs (SPY, QQQ, GLD, USO) trade only during US market hours. Only BTC trades 24/7.
+- The ETFs (SPY, QQQ, GLD, USO) trade only during US market hours. Outside those hours the bot
+  records `skipped:market closed` for them. Only BTC trades 24/7.
+- While a buy order is still pending, the bot sends no second one (`skipped:order pending`).
 - GLD and USO are ETF proxies, not the commodities themselves.
 - The strategies are simple illustrations and have not been tuned or optimised.
 

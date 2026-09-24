@@ -46,6 +46,10 @@ class Signal(BaseModel):
     ref_price: float = 0.0  # last close the signal was computed on
     strategy: str = ""
 
+    @property
+    def is_actionable(self) -> bool:
+        return self.action in (Action.ENTER_LONG, Action.EXIT)
+
 
 class Side(str, Enum):
     BUY = "buy"
@@ -55,6 +59,7 @@ class Side(str, Enum):
 class OrderType(str, Enum):
     MARKET = "market"
     STOP = "stop"
+    STOP_LIMIT = "stop_limit"  # Alpaca crypto supports stop_limit but not plain stop
 
 
 class OrderStatus(str, Enum):
@@ -75,6 +80,9 @@ class Order(BaseModel):
     qty: float
     type: OrderType = OrderType.MARKET
     stop_price: float | None = None
+    limit_price: float | None = None
+    # Entry only: protective stop attached as a linked (OTO) order that activates on fill.
+    stop_loss: float | None = None
     client_order_id: str | None = None
     status: OrderStatus = OrderStatus.NEW
     filled_price: float | None = None

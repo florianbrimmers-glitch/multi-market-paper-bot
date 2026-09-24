@@ -15,6 +15,14 @@ class BrokerAdapter(ABC):
         """Open positions keyed by position symbol (e.g. 'BTCUSD')."""
 
     @abstractmethod
+    def get_open_orders(self) -> list[Order]:
+        """Orders not yet filled or cancelled (queued entries, resting stops)."""
+
+    @abstractmethod
+    def is_market_open(self) -> bool:
+        """US equity session open? (Crypto trades 24/7 regardless.)"""
+
+    @abstractmethod
     def submit_order(self, order: Order) -> Order: ...
 
     @abstractmethod
