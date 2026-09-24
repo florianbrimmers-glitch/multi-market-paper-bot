@@ -1,0 +1,44 @@
+name: Paper Trading Loop
+
+# One evaluation tick across all instruments. Safe by default: DRY_RUN stays true unless you
+# set the repository variable DRY_RUN=false (or choose false on a manual run).
+# SPY/QQQ/GLD/USO only trade during US market hours; BTC/USD trades 24/7.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # GitHub may delay scheduled runs by several minutes
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true = log only, false = place paper orders"
+        default: "true"
+
+concurrency:
+  group: paper-trading-loop
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      # Keep the decision log across runs so the night brief can report the day's actions.
+      - uses: actions/cache/restore@v4
+        with:
+          path: trade_decisions.jsonl
+          key: decision-log-${{ github.run_id }}
+          restore-keys: decision-log-
+      - run: python run_trade.py
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: trade_decisions.jsonl
+          key: decision-log-${{ github.run_id }}

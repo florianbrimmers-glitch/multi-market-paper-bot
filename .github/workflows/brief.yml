@@ -1,0 +1,42 @@
+name: Daily Briefs
+
+# Morning brief before the US open, night brief after the close (times in UTC).
+# Output appears in the job log and the run summary. See README for delivering it via a
+# scheduled Claude task instead.
+
+on:
+  schedule:
+    - cron: "0 13 * * 1-5"   # morning
+    - cron: "30 21 * * 1-5"  # night
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "morning or night"
+        default: "morning"
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: trade_decisions.jsonl
+          key: decision-log-brief-${{ github.run_id }}
+          restore-keys: decision-log-
+      - name: Generate brief
+        run: |
+          KIND="${{ github.event.inputs.kind }}"
+          if [ -z "$KIND" ]; then
+            if [ "$(date -u +%H)" -lt 17 ]; then KIND=morning; else KIND=night; fi
+          fi
+          python run_brief.py "$KIND" | tee brief.txt
+          { echo "## ${KIND^} brief"; echo; cat brief.txt; } >> "$GITHUB_STEP_SUMMARY"
