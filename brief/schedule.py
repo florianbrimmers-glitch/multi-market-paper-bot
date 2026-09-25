@@ -28,6 +28,7 @@ class BriefState(BaseModel):
     night: str = ""
     positions: dict[str, list[float]] = {}  # symbol -> [qty, avg entry] after the last tick
     own_exits: list[str] = []  # symbols the bot closed itself in the last tick
+    cooldown: dict[str, str] = {}  # symbol -> ISO time until which re-entry is blocked
 
 
 def state_path() -> str:

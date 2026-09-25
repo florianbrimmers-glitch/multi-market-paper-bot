@@ -174,3 +174,46 @@ def test_own_exit_is_not_reported_as_stop():
     loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
               fetch=lambda inst: fx.flat_series(), notify=posted.append)
     assert posted == []
+
+
+def test_no_reentry_in_same_tick_after_stop_out(monkeypatch):
+    """Regression (2026-09-25): USO was stopped out and re-bought in the very same tick."""
+    from models import Order, Side
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("USO", 150.0)
+    b.submit_order(Order(symbol="USO", side=Side.BUY, qty=10, stop_loss=148.5))
+    state = BriefState(morning="2026-09-25", positions={"USO": [10, 150.0]})
+    b.trigger_stops("USO", bar_low=148.0)
+    posted = []
+    fetch = lambda inst: fx.uptrend() if inst.symbol == "USO" else fx.flat_series()  # trend still up
+    recs, _ = loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
+                        fetch=fetch, notify=posted.append)
+    uso = next(r for r in recs if r.symbol == "USO")
+    assert uso.action_taken == "skipped:cooldown after stop-out"
+    assert "USO" not in b.get_positions()
+    assert "USO" in state.cooldown and "🛑 **USO**" in posted[0]
+
+
+def test_cooldown_expires(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("USO", 150.0)
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    state = BriefState(morning="2026-09-25", cooldown={"USO": past})
+    fetch = lambda inst: fx.uptrend() if inst.symbol == "USO" else fx.flat_series()
+    recs, _ = loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
+                        fetch=fetch, notify=lambda body: None)
+    assert next(r for r in recs if r.symbol == "USO").action_taken == "submitted"
+    assert state.cooldown == {}
+
+
+def test_cooldown_length_follows_timeframe():
+    from datetime import datetime, timezone
+    from run_loop import cooldown_until
+    now = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+    assert cooldown_until("USO", now) == "2026-09-26T12:00:00+00:00"   # 4h bars -> 24h
+    assert cooldown_until("SPY", now) == "2026-09-25T13:30:00+00:00"   # 15m bars -> 90 min

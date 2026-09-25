@@ -17,7 +17,8 @@ def main() -> None:
     log = logging.getLogger("run_trade")
     log.info("Starting tick (DRY_RUN=%s)", config.dry_run())
     with AlpacaBroker() as broker:
-        records = run_tick(broker)
+        from engine.trader import live_price
+        records = run_tick(broker, price_of=live_price)
     for r in records:
         action = r.signal.action.value if r.signal else "n/a"
         log.info("%-8s %-18s %-11s -> %s %s", r.symbol, r.strategy, action, r.action_taken,

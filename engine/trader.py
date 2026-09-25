@@ -58,12 +58,28 @@ def ensure_protective_stops(broker: BrokerAdapter, positions, open_orders: list[
     return fixed
 
 
+def live_price(inst: Instrument) -> float | None:
+    """Current trade price for sizing; None (-> fall back to the bar close) if unavailable."""
+    try:
+        from data import latest_price
+        return latest_price(inst.symbol, inst.asset_class)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("No live price for %s (%s); using last bar close", inst.symbol, e)
+        return None
+
+
 def run_tick(
     broker: BrokerAdapter,
     fetch: Callable[[Instrument], list[Bar]] = _fetch,
     run_id: str | None = None,
+    price_of: Callable[[Instrument], float | None] | None = None,
+    blocked: set[str] | frozenset[str] = frozenset(),
 ) -> list[TradeRecord]:
-    """Evaluate every instrument once. `fetch` is injectable for tests."""
+    """Evaluate every instrument once. `fetch` / `price_of` are injectable for tests.
+
+    price_of: live price used for sizing and the stop (defaults to the signal's bar close).
+    blocked:  position symbols in a post-stop-out cooldown — no new entries for them.
+    """
     run_id = run_id or uuid.uuid4().hex[:12]
     dry = config.dry_run()
     account = broker.get_account()
@@ -92,6 +108,8 @@ def run_tick(
                 rec.action_taken = "hold"
             elif not session_ok:
                 rec.action_taken = "skipped:market closed"
+            elif signal.action == Action.ENTER_LONG and sym in blocked:
+                rec.action_taken = "skipped:cooldown after stop-out"
             elif sym in pending_buys:
                 rec.action_taken = "skipped:order pending"
 
@@ -105,7 +123,8 @@ def run_tick(
 
             else:  # ENTER_LONG, flat
                 decision = size_entry(
-                    symbol=sym, entry_price=signal.ref_price, bars=bars, account=account,
+                    symbol=sym, entry_price=(price_of(inst) if price_of else None) or signal.ref_price,
+                    bars=bars, account=account,
                     positions=positions, correlation_group=inst.correlation_group, group_of=_GROUP_OF,
                     allow_fractional=crypto,
                 )

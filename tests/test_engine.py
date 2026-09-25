@@ -99,3 +99,15 @@ def test_german_index_etfs_share_a_correlation_group(log_path, monkeypatch):
     records = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
     assert records["EWG"].action_taken == "submitted"
     assert records["DAX"].action_taken.startswith("skipped:correlation filter")
+
+
+def test_entry_and_stop_use_live_price_not_stale_bar_close(log_path, monkeypatch):
+    """Regression (2026-09-25): USO signal close 148.78 but fill 149.96 -> stop was 1.8% away."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    broker = MockBroker()
+    broker.set_price("USO", 149.96)
+    fetch = lambda inst: fx.uptrend(start=100.0) if inst.symbol == "USO" else fx.flat_series()
+    recs = run_tick(broker, fetch=fetch, run_id="t", price_of=lambda inst: 149.96 if inst.symbol == "USO" else None)
+    uso = next(r for r in recs if r.symbol == "USO")
+    assert uso.plan.entry_price == 149.96
+    assert uso.plan.stop_price == pytest.approx(149.96 * 0.99, abs=0.01)  # within the 1% cap of the real price

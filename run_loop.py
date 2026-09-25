@@ -70,11 +70,37 @@ def broker_closed_events(state, current: dict) -> list[str]:
     return out
 
 
+COOLDOWN_BARS = 6  # after a stop-out, wait this many bars of the instrument's timeframe
+_TF_MINUTES = {"15Min": 15, "1Hour": 60, "4Hour": 240}
+
+
+def cooldown_until(symbol: str, now: datetime) -> str:
+    import config
+    inst = next((i for i in config.INSTRUMENTS if i.position_symbol == symbol), None)
+    minutes = _TF_MINUTES.get(inst.timeframe.value, 60) if inst else 60
+    return (now + timedelta(minutes=COOLDOWN_BARS * minutes)).isoformat()
+
+
 def loop_once(broker, state, build=None, publisher=publish, fetch=None,
-              notify=lambda body: post_comment(TRADE_LOG_TITLE, body)) -> tuple[list, str | None]:
+              notify=lambda body: post_comment(TRADE_LOG_TITLE, body),
+              price_of=None) -> tuple[list, str | None]:
     """One tick + trade notifications + a brief if due. Collaborators are injectable for tests."""
-    stopped = broker_closed_events(state, broker.get_positions())
-    records = run_tick(broker, fetch=fetch) if fetch else run_tick(broker)
+    now = datetime.now(timezone.utc)
+    current = broker.get_positions()
+    stopped = broker_closed_events(state, current)
+    # No immediate re-entry after a stop-out (it re-bought USO in the same tick it was stopped).
+    for sym in state.positions:
+        if sym not in current and sym not in state.own_exits:
+            state.cooldown[sym] = cooldown_until(sym, now)
+    state.cooldown = {s: u for s, u in state.cooldown.items() if u > now.isoformat()}
+    kwargs = {"blocked": set(state.cooldown)}
+    if fetch:
+        kwargs["fetch"] = fetch
+    if price_of is None and fetch is None:
+        from engine.trader import live_price as price_of
+    if price_of:
+        kwargs["price_of"] = price_of
+    records = run_tick(broker, **kwargs)
     for r in records:
         if r.action_taken != "hold" or r.error:
             log.info("%-8s %s %s", r.symbol, r.action_taken, r.error or (r.signal.reason if r.signal else ""))
