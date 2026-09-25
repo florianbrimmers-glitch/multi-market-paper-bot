@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import datetime
 
 import httpx
@@ -24,6 +25,8 @@ def _pos_symbol(symbol: str) -> str:
 
 
 class AlpacaBroker(BrokerAdapter):
+    poll_interval = 0.5
+
     def __init__(self, timeout: float = 20.0) -> None:
         self.base_url = config.alpaca_trading_url()  # raises unless paper
         self._client = httpx.Client(
@@ -131,17 +134,38 @@ class AlpacaBroker(BrokerAdapter):
         order.filled_price = float(fp) if fp else None
         return order
 
-    def close_position(self, symbol: str) -> Order | None:
+    _DONE = {"canceled", "filled", "expired", "rejected", "replaced"}
+
+    def _wait_until_done(self, order_ids: list[str], timeout: float) -> None:
+        """Cancels are asynchronous: until they complete, the shares stay 'held_for_orders' and
+        a close is rejected with 403 'insufficient qty available'."""
+        deadline = time.monotonic() + timeout
+        pending = list(order_ids)
+        while pending and time.monotonic() < deadline:
+            r = self._client.get(f"/v2/orders/{pending[0]}")
+            if r.status_code >= 400 or r.json().get("status") in self._DONE:
+                pending.pop(0)
+            else:
+                time.sleep(self.poll_interval)
+
+    def close_position(self, symbol: str, retries: int = 4) -> Order | None:
         sym = _pos_symbol(symbol)
         pos = self.get_positions().get(sym)
         if not pos:
             return None
-        # Cancel resting orders (e.g. the protective stop) so they don't fire after the exit.
-        for o in self.get_open_orders():
-            if o.symbol == sym and o.id:
-                self._client.delete(f"/v2/orders/{o.id}")
-        r = self._client.delete(f"/v2/positions/{sym}")
-        if r.status_code >= 400:
-            logger.error("Close position failed (%s): %s", r.status_code, r.text)
-            return Order(symbol=symbol, side=Side.SELL, qty=pos.qty, status=OrderStatus.REJECTED)
-        return Order(symbol=symbol, side=Side.SELL, qty=abs(pos.qty), id=r.json().get("id"))
+        # Cancel resting orders (e.g. the protective stop) so they can't fire after the exit —
+        # and wait for the cancels to settle, otherwise the close is rejected.
+        ids = [o.id for o in self.get_open_orders() if o.symbol == sym and o.id]
+        for oid in ids:
+            self._client.delete(f"/v2/orders/{oid}")
+        self._wait_until_done(ids, timeout=10.0)
+        for attempt in range(retries):
+            r = self._client.delete(f"/v2/positions/{sym}")
+            if r.status_code < 400:
+                return Order(symbol=symbol, side=Side.SELL, qty=abs(pos.qty), id=r.json().get("id"))
+            logger.error("Close position failed (%s, attempt %d/%d): %s", r.status_code, attempt + 1,
+                         retries, r.text)
+            if r.status_code != 403:
+                break
+            time.sleep(self.poll_interval * 2)
+        return Order(symbol=symbol, side=Side.SELL, qty=pos.qty, status=OrderStatus.REJECTED)

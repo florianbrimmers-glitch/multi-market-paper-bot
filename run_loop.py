@@ -50,6 +50,9 @@ def trade_events(records) -> list[str]:
     for r in records:
         if r.error:
             out.append(f"- ⚠️ **{r.symbol}** error: `{r.error}`")
+        elif r.action_taken == "exit_failed":
+            out.append(f"- ⚠️ **{r.symbol}** exit FAILED at the broker — will retry next tick "
+                       f"(the protective stop gets re-placed meanwhile)")
         elif r.action_taken in NOTABLE:
             reason = r.signal.reason if r.signal else ""
             if r.plan and r.action_taken != "exit":

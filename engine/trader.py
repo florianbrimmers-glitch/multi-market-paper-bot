@@ -119,7 +119,7 @@ def run_tick(
                 else:
                     order = broker.close_position(inst.symbol)
                     rec.order_id = order.id if order else None
-                    rec.action_taken = "exit"
+                    rec.action_taken = "exit_failed" if order and order.status == OrderStatus.REJECTED else "exit"
 
             else:  # ENTER_LONG, flat
                 decision = size_entry(

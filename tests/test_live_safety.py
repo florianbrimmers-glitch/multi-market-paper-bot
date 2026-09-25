@@ -105,3 +105,57 @@ def test_alpaca_crypto_never_uses_oto(alpaca):
     broker.submit_order(Order(symbol="BTC/USD", side=Side.SELL, qty=0.1, type=OrderType.STOP_LIMIT,
                               stop_price=99.0, limit_price=98.5))
     assert sent[1]["type"] == "stop_limit" and sent[1]["limit_price"] == "98.5"
+
+
+def test_alpaca_close_waits_for_stop_cancel_and_retries(monkeypatch):
+    """Regression (2026-09-25): DAX close got 403 'insufficient qty … held_for_orders' because
+    the OTO stop cancel hadn't settled yet."""
+    monkeypatch.setenv("ALPACA_API_KEY", "PKTEST")
+    monkeypatch.setenv("ALPACA_API_SECRET", "secret")
+    from broker.alpaca import AlpacaBroker
+    from models import OrderStatus
+    order_polls = iter(["pending_cancel", "canceled"])
+    closes = iter([403, 200])
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path))
+        if req.method == "GET" and req.url.path == "/v2/positions":
+            return httpx.Response(200, json=[{"symbol": "DAX", "qty": "557", "avg_entry_price": "44.67"}])
+        if req.method == "GET" and req.url.path == "/v2/orders":
+            return httpx.Response(200, json=[{"id": "s1", "symbol": "DAX", "side": "sell", "qty": "557",
+                                              "type": "stop", "stop_price": "44.27"}])
+        if req.method == "GET" and req.url.path == "/v2/orders/s1":
+            return httpx.Response(200, json={"status": next(order_polls)})
+        if req.method == "DELETE" and req.url.path == "/v2/orders/s1":
+            return httpx.Response(204)
+        if req.method == "DELETE" and req.url.path == "/v2/positions/DAX":
+            code = next(closes)
+            return httpx.Response(code, json={"id": "c1"} if code == 200 else {"message": "insufficient qty"})
+        return httpx.Response(404)
+
+    broker = AlpacaBroker()
+    broker.poll_interval = 0
+    broker._client = httpx.Client(base_url=broker.base_url, transport=httpx.MockTransport(handler))
+    result = broker.close_position("DAX")
+    assert result.status != OrderStatus.REJECTED and result.id == "c1"
+    # cancel issued, then polled until canceled, before the (retried) close
+    assert seen.index(("DELETE", "/v2/orders/s1")) < seen.index(("GET", "/v2/orders/s1"))
+    assert seen.count(("DELETE", "/v2/positions/DAX")) == 2
+
+
+def test_failed_exit_is_reported_not_counted_as_exit(tmp_path, monkeypatch):
+    from models import OrderStatus, Order, Side
+    from run_loop import trade_events
+
+    class StuckBroker(MockBroker):
+        def close_position(self, symbol):
+            return Order(symbol=symbol, side=Side.SELL, qty=1, status=OrderStatus.REJECTED)
+
+    b = StuckBroker()
+    b.set_price("GLD", 100.0)
+    b.submit_order(Order(symbol="GLD", side=Side.BUY, qty=5))
+    recs = run_tick(b, fetch=lambda inst: fx.downtrend() if inst.symbol == "GLD" else fx.flat_series(), run_id="t")
+    gld = next(r for r in recs if r.symbol == "GLD")
+    assert gld.action_taken == "exit_failed"
+    assert any("exit FAILED" in line for line in trade_events(recs))
