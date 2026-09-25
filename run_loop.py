@@ -60,14 +60,28 @@ def trade_events(records) -> list[str]:
     return out
 
 
+def broker_closed_events(state, current: dict) -> list[str]:
+    """Positions that vanished since the last tick without the bot closing them — i.e. the
+    protective stop (or another order at the broker) closed them. The bot never sees those fills."""
+    out = []
+    for sym, (qty, entry) in state.positions.items():
+        if sym not in current and sym not in state.own_exits:
+            out.append(f"- 🛑 **{sym}** closed at the broker (protective stop hit): {qty:g} @ entry {entry:.2f}")
+    return out
+
+
 def loop_once(broker, state, build=None, publisher=publish, fetch=None,
               notify=lambda body: post_comment(TRADE_LOG_TITLE, body)) -> tuple[list, str | None]:
     """One tick + trade notifications + a brief if due. Collaborators are injectable for tests."""
+    stopped = broker_closed_events(state, broker.get_positions())
     records = run_tick(broker, fetch=fetch) if fetch else run_tick(broker)
     for r in records:
         if r.action_taken != "hold" or r.error:
             log.info("%-8s %s %s", r.symbol, r.action_taken, r.error or (r.signal.reason if r.signal else ""))
-    events = trade_events(records)
+    events = stopped + trade_events(records)
+    state.positions = {s: [p.qty, p.avg_entry_price] for s, p in broker.get_positions().items()}
+    state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
+    save_state(state)
     if events:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         notify(f"**{stamp}** ({'DRY RUN' if records[0].dry_run else 'paper'})\n" + "\n".join(events))

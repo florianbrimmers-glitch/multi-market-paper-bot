@@ -22,8 +22,12 @@ MORNING_LEAD = timedelta(minutes=45)
 
 
 class BriefState(BaseModel):
+    """Loop state carried between jobs: brief dates plus the positions seen at the last tick."""
+
     morning: str = ""  # New York date (YYYY-MM-DD) of the last morning brief
     night: str = ""
+    positions: dict[str, list[float]] = {}  # symbol -> [qty, avg entry] after the last tick
+    own_exits: list[str] = []  # symbols the bot closed itself in the last tick
 
 
 def state_path() -> str:

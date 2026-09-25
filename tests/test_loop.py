@@ -142,3 +142,35 @@ def test_no_trade_post_when_nothing_happens():
     loop_once(b, BriefState(morning="2026-09-25"), build=lambda k, _: "x", publisher=lambda k, t: None,
               fetch=lambda inst: fx.flat_series(), notify=posted.append)
     assert posted == []
+
+
+def test_stop_out_at_broker_is_reported_once():
+    from models import Order, OrderType, Side
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("USO", 150.0)
+    b.submit_order(Order(symbol="USO", side=Side.BUY, qty=10, stop_loss=148.5))
+    state, posted = BriefState(morning="2026-09-25"), []
+    kw = dict(build=lambda k, _: "x", publisher=lambda k, t: None,
+              fetch=lambda inst: fx.flat_series(), notify=posted.append)
+    loop_once(b, state, **kw)
+    assert state.positions["USO"] == [10, 150.0] and posted == []
+    b.trigger_stops("USO", bar_low=148.0)  # the stop fills at the broker between ticks
+    loop_once(b, state, **kw)
+    assert len(posted) == 1 and "🛑 **USO** closed at the broker" in posted[0]
+    loop_once(b, state, **kw)
+    assert len(posted) == 1  # reported once, not every tick
+
+
+def test_own_exit_is_not_reported_as_stop():
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("SPY", 100.0)
+    from models import Order, Side
+    b.submit_order(Order(symbol="SPY", side=Side.BUY, qty=5))
+    state = BriefState(morning="2026-09-25", positions={"SPY": [5, 100.0]}, own_exits=["SPY"])
+    b.close_position("SPY")
+    posted = []
+    loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
+              fetch=lambda inst: fx.flat_series(), notify=posted.append)
+    assert posted == []
