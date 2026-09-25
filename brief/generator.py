@@ -8,15 +8,18 @@ from __future__ import annotations
 import logging
 
 import config
+import i18n
 from broker.base import BrokerAdapter
 from models import Bar, BriefData
 
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
-    "You are a concise trading-desk assistant for a PAPER (simulated-money) multi-market bot. "
-    "Write a short, factual brief in plain language. Never give financial advice, never promise "
-    "returns, and make clear this is simulated paper trading. Use only the numbers provided."
+    "Du bist ein knapper Trading-Assistent für einen PAPER-Trading-Bot (simuliertes Geld) auf "
+    "mehreren Märkten. Schreib ein kurzes, sachliches Briefing auf Deutsch in einfacher Sprache. "
+    "Nutze deutsche Zahlenformate (z. B. 1.234,56 $ und −0,70 %). Gib niemals Anlageberatung, "
+    "versprich keine Renditen und mach klar, dass es sich um simuliertes Papiergeld handelt. "
+    "Verwende ausschließlich die gelieferten Zahlen."
 )
 
 
@@ -40,19 +43,21 @@ def gather_brief_data(kind: str, broker: BrokerAdapter, generated_at: str,
 
 
 def fallback_text(data: BriefData) -> str:
+    title = "MORGEN-BRIEFING" if data.kind == "morning" else "ABEND-BRIEFING"
     lines = [
-        f"[{data.kind.upper()} BRIEF — PAPER TRADING] {data.generated_at}",
-        f"Equity: ${data.equity:,.2f} (cash ${data.cash:,.2f})",
-        f"Day P&L: ${data.day_pl:,.2f} ({data.day_pl_pct:+.2f}%)",
+        f"[{title} — PAPER-TRADING] {data.generated_at}",
+        f"Kontowert: {i18n.usd(data.equity)} (davon Cash {i18n.usd(data.cash)})",
+        f"Tagesergebnis: {i18n.usd(data.day_pl)} ({i18n.pct(data.day_pl_pct)})",
     ]
     if data.market_moves:
-        lines.append("Market moves: " + ", ".join(f"{s} {p:+.2f}%" for s, p in data.market_moves.items()))
-    lines.append("Open positions: " + (", ".join(
-        f"{p.symbol} {p.qty:g}@{p.avg_entry_price:.2f} (uPL ${p.unrealized_pl:,.2f})"
-        for p in data.positions) or "none"))
+        lines.append("Marktbewegung: " + ", ".join(f"{s} {i18n.pct(p)}" for s, p in data.market_moves.items()))
+    lines.append("Offene Positionen: " + (", ".join(
+        f"{p.symbol} {i18n.qty(p.qty)} Stück zu {i18n.usd(p.avg_entry_price)} "
+        f"(unrealisiert {i18n.usd(p.unrealized_pl)})"
+        for p in data.positions) or "keine"))
     if data.recent_actions:
-        lines.append("Recent actions: " + "; ".join(data.recent_actions))
-    lines.append("Reminder: simulated money, not financial advice.")
+        lines.append("Aktionen heute: " + "; ".join(data.recent_actions))
+    lines.append("Hinweis: simuliertes Papiergeld, keine Anlageberatung.")
     return "\n".join(lines)
 
 
@@ -60,14 +65,17 @@ def render_brief(data: BriefData) -> str:
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=config.anthropic_api_key())
-        focus = ("Cover overnight/opening market moves, what to watch today, current positions and equity."
+        focus = ("Behandle die Marktbewegungen über Nacht bzw. zur Eröffnung, worauf heute zu achten ist, "
+                 "die offenen Positionen und den Kontowert."
                  if data.kind == "morning" else
-                 "Cover how the portfolio performed today (day P&L), notable position moves and actions taken.")
+                 "Behandle, wie das Portfolio heute abgeschnitten hat (Tagesergebnis), auffällige "
+                 "Positionsbewegungen und die ausgeführten Aktionen.")
         msg = client.messages.create(
             model=config.CLAUDE_MODEL, max_tokens=600, system=_SYSTEM,
             messages=[{"role": "user", "content":
-                       f"Write the {data.kind} brief in a few short sentences. {focus}\n\n"
-                       f"Facts (JSON):\n{data.model_dump_json(indent=2)}"}],
+                       f"Schreib das {'Morgen' if data.kind == 'morning' else 'Abend'}-Briefing in "
+                       f"wenigen kurzen Sätzen auf Deutsch. {focus}\n\n"
+                       f"Fakten (JSON):\n{data.model_dump_json(indent=2)}"}],
         )
         text = "".join(b.text for b in msg.content if b.type == "text").strip()
         return text or fallback_text(data)

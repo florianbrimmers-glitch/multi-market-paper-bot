@@ -19,19 +19,19 @@ class MeanReversion(Strategy):
         sig = Signal(symbol=symbol, strategy=self.name)
         z = zscore(closes(bars), p.mr_lookback)
         if z is None:
-            sig.reason = "insufficient history"
+            sig.reason = "zu wenig Kurshistorie"
             return sig
         sig.ref_price = bars[-1].close
 
         if in_position:
             if z >= p.mr_exit_z:
                 sig.action = Action.EXIT
-                sig.reason = f"reverted to mean (z={z:.2f})"
+                sig.reason = f"zurück beim Durchschnitt (z={z:.2f})"
             else:
-                sig.reason = f"holding, still below mean (z={z:.2f})"
+                sig.reason = f"halten, noch unter dem Durchschnitt (z={z:.2f})"
         elif z <= p.mr_entry_z:
             sig.action = Action.ENTER_LONG
-            sig.reason = f"stretched below mean (z={z:.2f}) — snapback long"
+            sig.reason = f"deutlich unter dem Durchschnitt (z={z:.2f}) — Rückpraller erwartet"
         else:
-            sig.reason = f"no stretch (z={z:.2f})"
+            sig.reason = f"keine Überdehnung (z={z:.2f})"
         return sig

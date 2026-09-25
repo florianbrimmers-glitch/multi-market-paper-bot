@@ -131,7 +131,7 @@ def test_trade_events_are_posted_for_orders_not_holds(monkeypatch):
     loop_once(b, BriefState(morning="2026-09-25"), build=lambda k, _: "x", publisher=lambda k, t: None,
               fetch=fetch, notify=posted.append)
     assert len(posted) == 1
-    assert "**SPY** submitted: buy" in posted[0] and "stop" in posted[0] and "(paper)" in posted[0]
+    assert "**SPY** gekauft:" in posted[0] and "Stop" in posted[0] and "(Papiergeld)" in posted[0]
     assert "QQQ" not in posted[0]  # holds are not reported
 
 
@@ -157,7 +157,7 @@ def test_stop_out_at_broker_is_reported_once():
     assert state.positions["USO"] == [10, 150.0] and posted == []
     b.trigger_stops("USO", bar_low=148.0)  # the stop fills at the broker between ticks
     loop_once(b, state, **kw)
-    assert len(posted) == 1 and "🛑 **USO** closed at the broker" in posted[0]
+    assert len(posted) == 1 and "🛑 **USO** vom Schutz-Stop beim Broker verkauft" in posted[0]
     loop_once(b, state, **kw)
     assert len(posted) == 1  # reported once, not every tick
 

@@ -15,7 +15,9 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
+import i18n
 import logbuch
 from brief.deliver import TRADE_LOG_TITLE, post_brief, post_comment
 from brief.schedule import brief_due, load_state, save_state
@@ -23,6 +25,7 @@ from broker import AlpacaBroker
 from engine import run_tick
 
 log = logging.getLogger("run_loop")
+BERLIN = ZoneInfo("Europe/Berlin")
 BAR_CLOSE_DELAY = timedelta(seconds=20)
 
 
@@ -44,22 +47,28 @@ def publish(kind: str, text: str) -> None:
 NOTABLE = ("submitted", "rejected", "exit")
 
 
+STRATEGY_DE = {"mean_reversion": "Mean Reversion", "momentum_breakout": "Momentum-Ausbruch",
+               "trend_following": "Trendfolge"}
+
+
 def trade_events(records) -> list[str]:
-    """Human-readable lines for real orders, rejections, exits and errors (not holds/skips)."""
+    """German lines for real orders, rejections, exits and errors (not holds/skips)."""
     out = []
     for r in records:
+        strat = STRATEGY_DE.get(r.strategy, r.strategy)
+        reason = r.signal.reason if r.signal else ""
         if r.error:
-            out.append(f"- ⚠️ **{r.symbol}** error: `{r.error}`")
+            out.append(f"- ⚠️ **{r.symbol}** Fehler: `{r.error}`")
         elif r.action_taken == "exit_failed":
-            out.append(f"- ⚠️ **{r.symbol}** exit FAILED at the broker — will retry next tick "
-                       f"(the protective stop gets re-placed meanwhile)")
-        elif r.action_taken in NOTABLE:
-            reason = r.signal.reason if r.signal else ""
-            if r.plan and r.action_taken != "exit":
-                out.append(f"- **{r.symbol}** {r.action_taken}: buy {r.plan.qty:g} @ ~{r.plan.entry_price:.2f}, "
-                           f"stop {r.plan.stop_price:.2f} ({r.strategy}: {reason})")
-            else:
-                out.append(f"- **{r.symbol}** {r.action_taken} ({r.strategy}: {reason})")
+            out.append(f"- ⚠️ **{r.symbol}** Verkauf beim Broker FEHLGESCHLAGEN — neuer Versuch beim nächsten "
+                       f"Check (der Schutz-Stop wird solange neu gesetzt)")
+        elif r.action_taken == "submitted" and r.plan:
+            out.append(f"- 🟢 **{r.symbol}** gekauft: {i18n.qty(r.plan.qty)} Stück zu ca. {i18n.usd(r.plan.entry_price)}, "
+                       f"Stop {i18n.usd(r.plan.stop_price)} ({strat}: {reason})")
+        elif r.action_taken == "rejected":
+            out.append(f"- ⚠️ **{r.symbol}** Kauforder vom Broker abgelehnt ({strat}: {reason})")
+        elif r.action_taken == "exit":
+            out.append(f"- 🔴 **{r.symbol}** verkauft ({strat}: {reason})")
     return out
 
 
@@ -69,7 +78,8 @@ def broker_closed_events(state, current: dict) -> list[str]:
     out = []
     for sym, (qty, entry) in state.positions.items():
         if sym not in current and sym not in state.own_exits:
-            out.append(f"- 🛑 **{sym}** closed at the broker (protective stop hit): {qty:g} @ entry {entry:.2f}")
+            out.append(f"- 🛑 **{sym}** vom Schutz-Stop beim Broker verkauft: {i18n.qty(qty)} Stück, "
+                       f"Einstieg {i18n.usd(entry)}")
     return out
 
 
@@ -112,8 +122,9 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
     save_state(state)
     if events:
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        notify(f"**{stamp}** ({'DRY RUN' if records[0].dry_run else 'paper'})\n" + "\n".join(events))
+        stamp = datetime.now(BERLIN).strftime("%d.%m.%Y %H:%M Uhr")
+        mode = "Testlauf, keine Orders" if records[0].dry_run else "Papiergeld"
+        notify(f"**{stamp}** ({mode})\n" + "\n".join(events))
     kind = brief_due(broker.clock(), state)
     if kind:
         if build is None:

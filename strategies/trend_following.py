@@ -19,7 +19,7 @@ class TrendFollowing(Strategy):
         cs = closes(bars)
         fast, slow = sma(cs, p.tf_fast_ma), sma(cs, p.tf_slow_ma)
         if fast is None or slow is None:
-            sig.reason = "insufficient history"
+            sig.reason = "zu wenig Kurshistorie"
             return sig
         sig.ref_price = bars[-1].close
         uptrend = fast > slow
@@ -27,12 +27,12 @@ class TrendFollowing(Strategy):
         if in_position:
             if not uptrend:
                 sig.action = Action.EXIT
-                sig.reason = f"fast MA {fast:.2f} crossed below slow MA {slow:.2f}"
+                sig.reason = f"schneller Schnitt {fast:.2f} unter langsamen {slow:.2f} gefallen — Trend vorbei"
             else:
-                sig.reason = f"riding trend (fast {fast:.2f} > slow {slow:.2f})"
+                sig.reason = f"Trend läuft (schnell {fast:.2f} > langsam {slow:.2f})"
         elif uptrend:
             sig.action = Action.ENTER_LONG
-            sig.reason = f"uptrend (fast {fast:.2f} > slow {slow:.2f})"
+            sig.reason = f"Aufwärtstrend (schnell {fast:.2f} > langsam {slow:.2f})"
         else:
-            sig.reason = f"no uptrend (fast {fast:.2f} <= slow {slow:.2f})"
+            sig.reason = f"kein Aufwärtstrend (schnell {fast:.2f} <= langsam {slow:.2f})"
         return sig

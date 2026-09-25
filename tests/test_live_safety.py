@@ -158,4 +158,4 @@ def test_failed_exit_is_reported_not_counted_as_exit(tmp_path, monkeypatch):
     recs = run_tick(b, fetch=lambda inst: fx.downtrend() if inst.symbol == "GLD" else fx.flat_series(), run_id="t")
     gld = next(r for r in recs if r.symbol == "GLD")
     assert gld.action_taken == "exit_failed"
-    assert any("exit FAILED" in line for line in trade_events(recs))
+    assert any("FEHLGESCHLAGEN" in line for line in trade_events(recs))

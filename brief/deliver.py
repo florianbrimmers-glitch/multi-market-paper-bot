@@ -9,19 +9,21 @@ import os
 
 logger = logging.getLogger(__name__)
 
-ISSUE_TITLE = "Daily Briefs"
-TRADE_LOG_TITLE = "Trade Log"
+ISSUE_TITLE = "Tägliche Briefings"
+TRADE_LOG_TITLE = "Trade-Log"
+# Issues created before the switch to German keep working under their old titles.
+_OLD_TITLES = {ISSUE_TITLE: "Daily Briefs", TRADE_LOG_TITLE: "Trade Log"}
 API = "https://api.github.com"
 _ISSUE_BODIES = {
-    ISSUE_TITLE: "Morning and night briefs from the paper-trading bot are posted here as comments. "
-                 "Simulated money only — not financial advice.",
-    TRADE_LOG_TITLE: "Every paper order, rejection, exit and error from the trading loop is posted here. "
-                     "Simulated money only — not financial advice.",
+    ISSUE_TITLE: "Hier postet der Paper-Trading-Bot das Morgen- und Abend-Briefing als Kommentar. "
+                 "Nur Papiergeld (simuliert) — keine Anlageberatung.",
+    TRADE_LOG_TITLE: "Hier postet der Bot jede Papier-Order, jeden Verkauf, jeden Stop und jeden Fehler. "
+                     "Nur Papiergeld (simuliert) — keine Anlageberatung.",
 }
 
 
 def post_brief(text: str, kind: str, client=None) -> bool:
-    heading = "☀️ Morning brief" if kind == "morning" else "🌙 Night brief"
+    heading = "☀️ Morgen-Briefing" if kind == "morning" else "🌙 Abend-Briefing"
     return post_comment(ISSUE_TITLE, f"### {heading}\n\n{text}", client)
 
 
@@ -37,7 +39,8 @@ def post_comment(title: str, body: str, client=None) -> bool:
     try:
         r = client.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100})
         r.raise_for_status()
-        issue = next((i for i in r.json() if i.get("title") == title and "pull_request" not in i), None)
+        wanted = {title, _OLD_TITLES.get(title, title)}
+        issue = next((i for i in r.json() if i.get("title") in wanted and "pull_request" not in i), None)
         if issue is None:
             r = client.post(f"/repos/{repo}/issues", json={"title": title, "body": _ISSUE_BODIES.get(title, "")})
             r.raise_for_status()

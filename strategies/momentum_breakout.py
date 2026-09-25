@@ -18,7 +18,7 @@ class MomentumBreakout(Strategy):
         p = self.params
         sig = Signal(symbol=symbol, strategy=self.name)
         if not bars:
-            sig.reason = "no data"
+            sig.reason = "keine Daten"
             return sig
         last = bars[-1]
         sig.ref_price = last.close
@@ -27,23 +27,23 @@ class MomentumBreakout(Strategy):
             exit_level = donchian_low(bars, p.mb_exit_lookback)
             if exit_level is not None and last.close < exit_level:
                 sig.action = Action.EXIT
-                sig.reason = f"broke {p.mb_exit_lookback}-bar low {exit_level:.2f} — momentum gone"
+                sig.reason = f"unter das {p.mb_exit_lookback}-Kerzen-Tief {exit_level:.2f} gefallen — Schwung weg"
             else:
-                sig.reason = "holding breakout"
+                sig.reason = "Ausbruch hält"
             return sig
 
         channel = donchian_high(bars, p.mb_channel_lookback)
         avg_vol = avg_volume(bars, p.mb_vol_lookback)
         if channel is None or not avg_vol:
-            sig.reason = "insufficient history"
+            sig.reason = "zu wenig Kurshistorie"
             return sig
 
         ratio = last.volume / avg_vol
         if last.close > channel and ratio >= p.mb_vol_mult:
             sig.action = Action.ENTER_LONG
-            sig.reason = f"broke {channel:.2f} on {ratio:.1f}x volume"
+            sig.reason = f"Ausbruch über {channel:.2f} bei {ratio:.1f}-fachem Volumen"
         elif last.close > channel:
-            sig.reason = f"broke {channel:.2f} on weak volume ({ratio:.1f}x) — likely fakeout"
+            sig.reason = f"über {channel:.2f}, aber schwaches Volumen ({ratio:.1f}x) — vermutlich Fehlausbruch"
         else:
-            sig.reason = f"below breakout level {channel:.2f}"
+            sig.reason = f"unter der Ausbruchsmarke {channel:.2f}"
         return sig

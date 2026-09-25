@@ -28,7 +28,7 @@ def test_momentum_breakout_enters_on_volume_breakout():
 def test_momentum_breakout_rejects_low_volume_fakeout():
     sig = build_strategy("momentum_breakout").generate_signal("BTC/USD", fx.breakout_no_volume(), False)
     assert sig.action == Action.HOLD
-    assert "fakeout" in sig.reason
+    assert "Fehlausbruch" in sig.reason
 
 
 def test_momentum_breakout_exits_on_channel_low_break():
