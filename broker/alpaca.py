@@ -2,14 +2,21 @@
 from __future__ import annotations
 
 import logging
+import re
+from datetime import datetime
 
 import httpx
 
 import config
 from broker.base import BrokerAdapter
-from models import Account, Order, OrderStatus, OrderType, Position, Side
+from models import Account, Clock, Order, OrderStatus, OrderType, Position, Side
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_ts(value: str) -> datetime:
+    """Alpaca sends nanosecond fractions ('...:03.123456789-04:00'); Python accepts at most 6 digits."""
+    return datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", value).replace("Z", "+00:00"))
 
 
 def _pos_symbol(symbol: str) -> str:
@@ -83,10 +90,12 @@ class AlpacaBroker(BrokerAdapter):
                 add(leg)
         return out
 
-    def is_market_open(self) -> bool:
+    def clock(self) -> Clock:
         r = self._client.get("/v2/clock")
         r.raise_for_status()
-        return bool(r.json().get("is_open"))
+        d = r.json()
+        return Clock(timestamp=_parse_ts(d["timestamp"]), is_open=bool(d["is_open"]),
+                     next_open=_parse_ts(d["next_open"]), next_close=_parse_ts(d["next_close"]))
 
     def submit_order(self, order: Order) -> Order:
         crypto = "/" in order.symbol

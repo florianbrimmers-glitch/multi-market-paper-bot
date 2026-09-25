@@ -123,6 +123,15 @@ class Account(BaseModel):
         return (self.equity - self.last_equity) / self.last_equity * 100.0
 
 
+class Clock(BaseModel):
+    """US equity session clock. Timestamps carry the exchange's local offset (New York)."""
+
+    timestamp: datetime
+    is_open: bool
+    next_open: datetime
+    next_close: datetime
+
+
 class TradePlan(BaseModel):
     """A risk-approved order the engine intends to place."""
 

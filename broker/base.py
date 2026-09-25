@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from models import Account, Order, Position
+from models import Account, Clock, Order, Position
 
 
 class BrokerAdapter(ABC):
@@ -19,8 +19,11 @@ class BrokerAdapter(ABC):
         """Orders not yet filled or cancelled (queued entries, resting stops)."""
 
     @abstractmethod
+    def clock(self) -> Clock:
+        """US equity session clock (crypto trades 24/7 regardless)."""
+
     def is_market_open(self) -> bool:
-        """US equity session open? (Crypto trades 24/7 regardless.)"""
+        return self.clock().is_open
 
     @abstractmethod
     def submit_order(self, order: Order) -> Order: ...

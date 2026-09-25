@@ -27,9 +27,11 @@ jobs:
       - run: pip install -r requirements.txt
       - uses: actions/cache/restore@v4
         with:
-          path: trade_decisions.jsonl
-          key: decision-log-brief-${{ github.run_id }}
-          restore-keys: decision-log-
+          path: |
+            trade_decisions.jsonl
+            brief_state.json
+          key: bot-state-brief-${{ github.run_id }}
+          restore-keys: bot-state-
       - name: Generate brief
         run: |
           KIND="${{ github.event.inputs.kind }}"

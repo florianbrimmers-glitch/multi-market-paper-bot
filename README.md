@@ -61,7 +61,8 @@ data/            Alpaca market-data client
 broker/          broker interface, Alpaca paper adapter, in-memory MockBroker
 engine/          trader.py (one live tick) and backtest.py (replays history)
 brief/           Claude morning/night briefs, with a plain-text fallback
-run_trade.py / run_backtest.py / run_brief.py   command-line entry points
+run_loop.py      continuous loop (ticks + briefs), used by the workflow
+run_trade.py / run_backtest.py / run_brief.py   single tick / backtest / one brief
 ```
 
 The live engine and the backtester use the same strategy and risk code.
@@ -91,36 +92,26 @@ Every tick appends one JSONL line per instrument to `trade_decisions.jsonl`, inc
 In the repo settings, add these **secrets**: `ALPACA_API_KEY`, `ALPACA_API_SECRET` and
 `ANTHROPIC_API_KEY`. Orders are placed only once the repository **variable** `DRY_RUN` is `false`.
 
-GitHub's own schedule is unreliable on quiet repos (runs were hours late or skipped). So the
-workflows are started by an **external timer**, [cron-job.org](https://cron-job.org) (free),
-through the GitHub API. Each run takes about 1 minute, which comes to roughly 1,400 minutes a
-month, within the 2,000 free minutes of a private repo. `trade-loop.yml` keeps a sparse hourly
-fallback during the US session in case the timer fails.
+**`trade-loop.yml` runs the bot around the clock:**
+- Each job runs a tick every 15 minutes for about 5 h 40 min (`run_loop.py`). Ticks happen at
+  the quarter hour plus 20 seconds, so that the latest 15-minute bar has closed.
+- When a job ends, it starts the next one itself. A GitHub timer checks every 3 hours as a
+  watchdog and restarts the chain if it ever breaks. The concurrency group ensures that only one
+  job runs at a time.
+- This requires a **public repo**, because public repos have unlimited Actions minutes. A private
+  repo would use about 43,000 minutes a month.
+- **To stop the bot:** Actions → Paper Trading Loop → "…" → *Disable workflow*.
 
-### 1. Create a GitHub token
-github.com → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** →
-Generate new token:
-- Repository access: **Only select repositories** → `multi-market-paper-bot`
-- Permissions → Repository permissions → **Actions: Read and write**
-- Expiration: up to 1 year (put a reminder in your calendar to renew it)
+**Daily briefs** come from the same loop and follow the Alpaca exchange clock, so US daylight
+saving time is handled automatically:
+- The morning brief comes about 45 minutes before the US open, and the night brief right after
+  the close.
+- Both only come on trading days.
+- Each brief is posted as a comment on the **"Daily Briefs"** issue, so GitHub notifies you by
+  web, e-mail or the GitHub app.
+- In a public repo, anyone can read the briefs and logs (paper money). The keys stay secret.
 
-### 2. Set up cron-job.org jobs
-Each job uses the same request (Advanced tab):
-- **URL:** `https://api.github.com/repos/florianbrimmers-glitch/multi-market-paper-bot/actions/workflows/<WORKFLOW>/dispatches`
-- **Method:** `POST`
-- **Headers:** `Authorization: Bearer <TOKEN>`, `Accept: application/vnd.github+json`,
-  `Content-Type: application/json`
-- **Time zone:** `America/New_York`. This way the times follow the US exchange, including
-  daylight saving time.
-
-| Job | `<WORKFLOW>` | Body | Schedule (New York time) |
-|---|---|---|---|
-| Trading, US session | `trade-loop.yml` | `{"ref":"main"}` | Mon–Fri, hours 9–16, minutes 0/15/30/45 |
-| Trading, Bitcoin at night | `trade-loop.yml` | `{"ref":"main"}` | daily, hours 0–8 and 17–23, minute 0 |
-| Morning brief | `brief.yml` | `{"ref":"main","inputs":{"kind":"morning"}}` | Mon–Fri 09:00 |
-| Night brief | `brief.yml` | `{"ref":"main","inputs":{"kind":"night"}}` | Mon–Fri 16:30 |
-
-A successful call returns **HTTP 204**. The run then appears under Actions as `workflow_dispatch`.
+`brief.yml` generates a brief by hand whenever you want one.
 
 ### Receiving the briefs as a Claude task
 You can also set up a scheduled Claude task (Routine) on the same schedule. It would run

@@ -1,49 +1,75 @@
 name: Paper Trading Loop
 
-# One evaluation tick across all instruments. Safe by default: DRY_RUN stays true unless you
-# set the repository variable DRY_RUN=false (a manual run may override it).
-# ETFs/stocks only trade during US market hours; BTC/USD trades 24/7.
+# Runs the bot around the clock: each job ticks every 15 minutes for ~5h40 (run_loop.py), then
+# dispatches the next job itself. The schedule below is only a watchdog that restarts the chain
+# if it ever stops; the concurrency group guarantees at most one job runs and one waits.
+# Requires a public repo (unlimited Actions minutes) — a private repo would burn ~43k min/month.
 #
-# Primary trigger: an external timer (cron-job.org) calling the workflow_dispatch API — see
-# README "Scheduling". GitHub's own schedule is heavily throttled on quiet repos, so it is
-# kept only as a sparse hourly fallback during the US session.
+# Orders are placed only when the repository variable DRY_RUN is "false".
+# Morning/night briefs are posted from this loop to the "Daily Briefs" issue.
+# To stop the bot: Actions -> Paper Trading Loop -> "..." -> Disable workflow.
 
 on:
   schedule:
-    - cron: "7 13-20 * * 1-5"  # fallback only
+    - cron: "17 */3 * * *"  # watchdog only
   workflow_dispatch:
     inputs:
       dry_run:
         description: "Leave empty to use the DRY_RUN repo variable; true = log only, false = paper orders"
         required: false
         default: ""
+      minutes:
+        description: "Loop budget in minutes (0 = single tick)"
+        required: false
+        default: "340"
+      chain:
+        description: "Start the next job when this one ends"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+  actions: write   # re-dispatch this workflow
+  issues: write    # post briefs to the "Daily Briefs" issue
 
 concurrency:
   group: paper-trading-loop
   cancel-in-progress: false
 
 jobs:
-  tick:
+  loop:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     env:
       ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
       ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      # Keep the decision log across runs so the night brief can report the day's actions.
+      # Decision log + brief state carry over between chained jobs.
       - uses: actions/cache/restore@v4
         with:
-          path: trade_decisions.jsonl
-          key: decision-log-${{ github.run_id }}
-          restore-keys: decision-log-
-      - run: python run_trade.py
+          path: |
+            trade_decisions.jsonl
+            brief_state.json
+          key: bot-state-${{ github.run_id }}
+          restore-keys: bot-state-
+      - run: python run_loop.py --minutes "${{ github.event.inputs.minutes || '340' }}"
       - uses: actions/cache/save@v4
         if: always()
         with:
-          path: trade_decisions.jsonl
-          key: decision-log-${{ github.run_id }}
+          path: |
+            trade_decisions.jsonl
+            brief_state.json
+          key: bot-state-${{ github.run_id }}
+      - name: Start next job
+        if: always() && github.event.inputs.chain != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run trade-loop.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"

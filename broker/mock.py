@@ -7,9 +7,10 @@ sees a low at or below the stop price — like a real broker, not instantly. An 
 from __future__ import annotations
 
 import itertools
+from datetime import datetime, timedelta, timezone
 
 from broker.base import BrokerAdapter
-from models import Account, Order, OrderStatus, OrderType, Position, Side
+from models import Account, Clock, Order, OrderStatus, OrderType, Position, Side
 
 
 def _key(symbol: str) -> str:
@@ -26,6 +27,7 @@ class MockBroker(BrokerAdapter):
         self.orders: list[Order] = []
         self.resting: list[Order] = []
         self.market_open = True
+        self.fixed_clock: Clock | None = None
 
     def set_price(self, symbol: str, price: float) -> None:
         k = _key(symbol)
@@ -45,8 +47,12 @@ class MockBroker(BrokerAdapter):
     def get_open_orders(self) -> list[Order]:
         return list(self.resting)
 
-    def is_market_open(self) -> bool:
-        return self.market_open
+    def clock(self) -> Clock:
+        if self.fixed_clock is not None:
+            return self.fixed_clock
+        now = datetime.now(timezone.utc)
+        return Clock(timestamp=now, is_open=self.market_open,
+                     next_open=now + timedelta(hours=1), next_close=now + timedelta(hours=2))
 
     def _fill(self, order: Order, price: float) -> Order:
         k = _key(order.symbol)

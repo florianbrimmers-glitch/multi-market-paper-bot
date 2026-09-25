@@ -27,16 +27,19 @@ def todays_actions(now: datetime) -> list[str]:
     return out
 
 
+def build_brief(kind: str, broker) -> str:
+    now = datetime.now(timezone.utc)
+    market_bars = {i.symbol: fetch_bars(i.symbol, i.asset_class, Timeframe.H1, limit=24)
+                   for i in config.INSTRUMENTS}
+    return render_brief(gather_brief_data(kind, broker, now.isoformat(), market_bars, todays_actions(now)))
+
+
 def main(argv: list[str]) -> None:
     kind = (argv[0] if argv else "morning").lower()
     if kind not in ("morning", "night"):
         raise SystemExit("usage: run_brief.py [morning|night]")
-    now = datetime.now(timezone.utc)
     with AlpacaBroker() as broker:
-        market_bars = {i.symbol: fetch_bars(i.symbol, i.asset_class, Timeframe.H1, limit=24)
-                       for i in config.INSTRUMENTS}
-        data = gather_brief_data(kind, broker, now.isoformat(), market_bars, todays_actions(now))
-    print(render_brief(data))
+        print(build_brief(kind, broker))
 
 
 if __name__ == "__main__":
