@@ -76,10 +76,11 @@ def test_loop_once_publishes_due_brief_and_records_it():
     state = BriefState()
     flat = lambda inst: fx.flat_series()
     _, kind = loop_once(b, state, build=lambda k, _: f"{k} text",
-                        publisher=lambda k, t: sent.append((k, t)), fetch=flat)
+                        publisher=lambda k, t: sent.append((k, t)), fetch=flat, notify=sent.append)
     assert kind == "morning" and sent == [("morning", "morning text")]
     assert load_state().morning == "2026-09-25"
-    _, kind = loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: sent.append(k), fetch=flat)
+    _, kind = loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: sent.append(k), fetch=flat,
+                        notify=sent.append)
     assert kind is None and len(sent) == 1
 
 
@@ -114,3 +115,26 @@ def test_post_brief_creates_issue_once_then_comments(monkeypatch):
     assert post_brief("hello", "night", client=client) is True
     assert calls == [("GET", "/repos/o/r/issues"), ("POST", "/repos/o/r/issues"),
                      ("POST", "/repos/o/r/issues/8/comments")]
+
+
+def test_trade_events_are_posted_for_orders_not_holds(monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("SPY", 90.0)
+    posted = []
+    fetch = lambda inst: fx.flat_then_drop() if inst.symbol == "SPY" else fx.flat_series()
+    loop_once(b, BriefState(morning="2026-09-25"), build=lambda k, _: "x", publisher=lambda k, t: None,
+              fetch=fetch, notify=posted.append)
+    assert len(posted) == 1
+    assert "**SPY** submitted: buy" in posted[0] and "stop" in posted[0] and "(paper)" in posted[0]
+    assert "QQQ" not in posted[0]  # holds are not reported
+
+
+def test_no_trade_post_when_nothing_happens():
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    posted = []
+    loop_once(b, BriefState(morning="2026-09-25"), build=lambda k, _: "x", publisher=lambda k, t: None,
+              fetch=lambda inst: fx.flat_series(), notify=posted.append)
+    assert posted == []

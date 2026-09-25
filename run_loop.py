@@ -17,7 +17,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import logbuch
-from brief.deliver import post_brief
+from brief.deliver import TRADE_LOG_TITLE, post_brief, post_comment
 from brief.schedule import brief_due, load_state, save_state
 from broker import AlpacaBroker
 from engine import run_tick
@@ -41,12 +41,36 @@ def publish(kind: str, text: str) -> None:
     post_brief(text, kind)
 
 
-def loop_once(broker, state, build=None, publisher=publish, fetch=None) -> tuple[list, str | None]:
-    """One tick + a brief if due. `build(kind, broker)` and `fetch` are injectable for tests."""
+NOTABLE = ("submitted", "rejected", "exit")
+
+
+def trade_events(records) -> list[str]:
+    """Human-readable lines for real orders, rejections, exits and errors (not holds/skips)."""
+    out = []
+    for r in records:
+        if r.error:
+            out.append(f"- ⚠️ **{r.symbol}** error: `{r.error}`")
+        elif r.action_taken in NOTABLE:
+            reason = r.signal.reason if r.signal else ""
+            if r.plan and r.action_taken != "exit":
+                out.append(f"- **{r.symbol}** {r.action_taken}: buy {r.plan.qty:g} @ ~{r.plan.entry_price:.2f}, "
+                           f"stop {r.plan.stop_price:.2f} ({r.strategy}: {reason})")
+            else:
+                out.append(f"- **{r.symbol}** {r.action_taken} ({r.strategy}: {reason})")
+    return out
+
+
+def loop_once(broker, state, build=None, publisher=publish, fetch=None,
+              notify=lambda body: post_comment(TRADE_LOG_TITLE, body)) -> tuple[list, str | None]:
+    """One tick + trade notifications + a brief if due. Collaborators are injectable for tests."""
     records = run_tick(broker, fetch=fetch) if fetch else run_tick(broker)
     for r in records:
         if r.action_taken != "hold" or r.error:
             log.info("%-8s %s %s", r.symbol, r.action_taken, r.error or (r.signal.reason if r.signal else ""))
+    events = trade_events(records)
+    if events:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        notify(f"**{stamp}** ({'DRY RUN' if records[0].dry_run else 'paper'})\n" + "\n".join(events))
     kind = brief_due(broker.clock(), state)
     if kind:
         if build is None:

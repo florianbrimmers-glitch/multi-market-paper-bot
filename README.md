@@ -111,6 +111,11 @@ saving time is handled automatically:
   web, e-mail or the GitHub app.
 - In a public repo, anyone can read the briefs and logs (paper money). The keys stay secret.
 
+**Trade notifications:** every real paper order (with its size and stop), every rejection,
+exit and error is posted as a comment on the **"Trade Log"** issue. You get notified of each
+one, and you can follow trades while the job is still running. (GitHub only shows a job's
+Actions logs once it has finished.)
+
 `brief.yml` generates a brief by hand whenever you want one.
 
 ### Receiving the briefs as a Claude task
