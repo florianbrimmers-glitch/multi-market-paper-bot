@@ -101,10 +101,13 @@ def test_post_brief_is_noop_outside_actions():
 def test_post_brief_creates_issue_once_then_comments(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "t")
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
-    calls = []
+    monkeypatch.setenv("GITHUB_REPOSITORY_OWNER", "florian")
+    calls, bodies = [], []
 
     def handler(req: httpx.Request) -> httpx.Response:
         calls.append((req.method, req.url.path))
+        if req.method == "POST":
+            bodies.append(json.loads(req.content)["body"])
         if req.method == "GET":
             return httpx.Response(200, json=[{"number": 7, "title": "Something else"}])
         if req.url.path.endswith("/issues"):
@@ -115,6 +118,7 @@ def test_post_brief_creates_issue_once_then_comments(monkeypatch):
     assert post_brief("hello", "night", client=client) is True
     assert calls == [("GET", "/repos/o/r/issues"), ("POST", "/repos/o/r/issues"),
                      ("POST", "/repos/o/r/issues/8/comments")]
+    assert bodies[-1].endswith("@florian")  # the owner is mentioned so GitHub notifies them
 
 
 def test_trade_events_are_posted_for_orders_not_holds(monkeypatch):

@@ -42,6 +42,11 @@ def post_comment(title: str, body: str, client=None) -> bool:
             r = client.post(f"/repos/{repo}/issues", json={"title": title, "body": _ISSUE_BODIES.get(title, "")})
             r.raise_for_status()
             issue = r.json()
+        # @mention the owner: GitHub doesn't reliably notify watchers about bot comments, but
+        # always delivers mentions (web, e-mail, mobile push).
+        owner = os.environ.get("NOTIFY_USER") or os.environ.get("GITHUB_REPOSITORY_OWNER")
+        if owner:
+            body = f"{body}\n\n@{owner}"
         r = client.post(f"/repos/{repo}/issues/{issue['number']}/comments", json={"body": body})
         r.raise_for_status()
         return True
