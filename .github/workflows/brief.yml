@@ -1,18 +1,16 @@
 name: Daily Briefs
 
-# Morning brief before the US open, night brief after the close (times in UTC).
-# Output appears in the job log and the run summary. See README for delivering it via a
-# scheduled Claude task instead.
+# Morning brief before the US open, night brief after the close. Triggered by the external
+# timer (cron-job.org) via the workflow_dispatch API — GitHub's own schedule ran hours late.
+# Output appears in the job log and the run summary.
 
 on:
-  schedule:
-    - cron: "0 13 * * 1-5"   # morning
-    - cron: "30 21 * * 1-5"  # night
   workflow_dispatch:
     inputs:
       kind:
-        description: "morning or night"
-        default: "morning"
+        description: "morning or night (empty = decide by time: before 17:00 UTC = morning)"
+        required: false
+        default: ""
 
 jobs:
   brief:

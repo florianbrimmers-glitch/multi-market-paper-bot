@@ -20,6 +20,15 @@ engine, a backtester, and daily morning/night briefs written by Claude. It runs 
 | Bitcoin | `BTC/USD` | Momentum breakout: buy on a Donchian-high break with volume confirmation | 1 hour |
 | Gold | `GLD` | Trend following: fast/slow moving-average crossover | 4 hour |
 | Oil | `USO` | Trend following | 4 hour |
+| Germany | `EWG` (iShares MSCI Germany ETF) | Trend following | 4 hour |
+| DAX | `DAX` (Global X DAX Germany ETF) | Trend following | 4 hour |
+| SAP | `SAP` (NYSE) | Mean reversion | 15 min |
+| Deutsche Bank | `DB` (NYSE) | Mean reversion | 15 min |
+| BioNTech | `BNTX` (Nasdaq) | Momentum breakout | 1 hour |
+
+**German assets:** Alpaca has no access to Xetra or Frankfurt. The German assets are therefore
+their **US listings**. They trade in USD during US market hours, but track the same companies
+and indices.
 
 **Risk controls applied to every trade:**
 - **Protective stop.** It is never placed more than 1% below the entry price
@@ -30,7 +39,8 @@ engine, a backtester, and daily morning/night briefs written by Claude. It runs 
 - **Volatility-based sizing.** Each trade risks 0.5% of equity (`RISK_PER_TRADE_PCT`). The stop
   distance comes from ATR, and position size is also capped at 25% of equity
   (`MAX_POSITION_PCT`) and by available buying power.
-- **Correlation filter.** SPY and QQQ can't both be long at the same time.
+- **Correlation filter.** SPY and QQQ can't both be long at the same time, and neither can
+  EWG and DAX.
 
 **Limitations:**
 - The ETFs (SPY, QQQ, GLD, USO) trade only during US market hours. Outside those hours the bot
@@ -76,14 +86,41 @@ python run_brief.py morning|night
 Every tick appends one JSONL line per instrument to `trade_decisions.jsonl`, including in
 `DRY_RUN`.
 
-## Scheduling (GitHub Actions)
+## Scheduling
 
 In the repo settings, add these **secrets**: `ALPACA_API_KEY`, `ALPACA_API_SECRET` and
-`ANTHROPIC_API_KEY`. Then:
-- **`trade-loop.yml`** runs a tick every 15 minutes. It only logs until you set the repository
-  **variable** `DRY_RUN=false`.
-- **`brief.yml`** runs the morning brief at 13:00 UTC and the night brief at 21:30 UTC on
-  weekdays. The text appears in the run summary.
+`ANTHROPIC_API_KEY`. Orders are placed only once the repository **variable** `DRY_RUN` is `false`.
+
+GitHub's own schedule is unreliable on quiet repos (runs were hours late or skipped). So the
+workflows are started by an **external timer**, [cron-job.org](https://cron-job.org) (free),
+through the GitHub API. Each run takes about 1 minute, which comes to roughly 1,400 minutes a
+month, within the 2,000 free minutes of a private repo. `trade-loop.yml` keeps a sparse hourly
+fallback during the US session in case the timer fails.
+
+### 1. Create a GitHub token
+github.com → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** →
+Generate new token:
+- Repository access: **Only select repositories** → `multi-market-paper-bot`
+- Permissions → Repository permissions → **Actions: Read and write**
+- Expiration: up to 1 year (put a reminder in your calendar to renew it)
+
+### 2. Set up cron-job.org jobs
+Each job uses the same request (Advanced tab):
+- **URL:** `https://api.github.com/repos/florianbrimmers-glitch/multi-market-paper-bot/actions/workflows/<WORKFLOW>/dispatches`
+- **Method:** `POST`
+- **Headers:** `Authorization: Bearer <TOKEN>`, `Accept: application/vnd.github+json`,
+  `Content-Type: application/json`
+- **Time zone:** `America/New_York`. This way the times follow the US exchange, including
+  daylight saving time.
+
+| Job | `<WORKFLOW>` | Body | Schedule (New York time) |
+|---|---|---|---|
+| Trading, US session | `trade-loop.yml` | `{"ref":"main"}` | Mon–Fri, hours 9–16, minutes 0/15/30/45 |
+| Trading, Bitcoin at night | `trade-loop.yml` | `{"ref":"main"}` | daily, hours 0–8 and 17–23, minute 0 |
+| Morning brief | `brief.yml` | `{"ref":"main","inputs":{"kind":"morning"}}` | Mon–Fri 09:00 |
+| Night brief | `brief.yml` | `{"ref":"main","inputs":{"kind":"night"}}` | Mon–Fri 16:30 |
+
+A successful call returns **HTTP 204**. The run then appears under Actions as `workflow_dispatch`.
 
 ### Receiving the briefs as a Claude task
 You can also set up a scheduled Claude task (Routine) on the same schedule. It would run

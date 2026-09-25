@@ -1,17 +1,22 @@
 name: Paper Trading Loop
 
 # One evaluation tick across all instruments. Safe by default: DRY_RUN stays true unless you
-# set the repository variable DRY_RUN=false (or choose false on a manual run).
-# SPY/QQQ/GLD/USO only trade during US market hours; BTC/USD trades 24/7.
+# set the repository variable DRY_RUN=false (a manual run may override it).
+# ETFs/stocks only trade during US market hours; BTC/USD trades 24/7.
+#
+# Primary trigger: an external timer (cron-job.org) calling the workflow_dispatch API — see
+# README "Scheduling". GitHub's own schedule is heavily throttled on quiet repos, so it is
+# kept only as a sparse hourly fallback during the US session.
 
 on:
   schedule:
-    - cron: "*/15 * * * *"  # GitHub may delay scheduled runs by several minutes
+    - cron: "7 13-20 * * 1-5"  # fallback only
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "true = log only, false = place paper orders"
-        default: "true"
+        description: "Leave empty to use the DRY_RUN repo variable; true = log only, false = paper orders"
+        required: false
+        default: ""
 
 concurrency:
   group: paper-trading-loop

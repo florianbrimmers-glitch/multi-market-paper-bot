@@ -86,3 +86,16 @@ def test_key_hint_never_leaks_key(monkeypatch):
     hint = config.describe_alpaca_key()
     assert "LIVE key" in hint and "SECRETVALUE" not in hint and "length 16" in hint
     assert config.alpaca_api_key() == "AKSECRETVALUE123"
+
+
+def test_german_index_etfs_share_a_correlation_group(log_path, monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    groups = {i.symbol: i.correlation_group for i in config.INSTRUMENTS}
+    assert groups["EWG"] == groups["DAX"] == "germany_index"
+    broker = MockBroker()
+    broker.set_price("EWG", 100.0)
+    broker.set_price("DAX", 100.0)
+    fetch = lambda inst: fx.uptrend() if inst.symbol in ("EWG", "DAX") else fx.flat_series()
+    records = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
+    assert records["EWG"].action_taken == "submitted"
+    assert records["DAX"].action_taken.startswith("skipped:correlation filter")

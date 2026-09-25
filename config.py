@@ -135,4 +135,15 @@ INSTRUMENTS: list[Instrument] = [
                strategy="trend_following", timeframe=Timeframe.H4),
     Instrument(symbol="USO", market="Oil", asset_class=AssetClass.EQUITY,
                strategy="trend_following", timeframe=Timeframe.H4),
+    # German exposure. Alpaca has no Xetra access, so these are the US listings (USD, US hours).
+    Instrument(symbol="EWG", market="Germany (iShares MSCI Germany ETF)", asset_class=AssetClass.EQUITY,
+               strategy="trend_following", timeframe=Timeframe.H4, correlation_group="germany_index"),
+    Instrument(symbol="DAX", market="DAX (Global X DAX Germany ETF)", asset_class=AssetClass.EQUITY,
+               strategy="trend_following", timeframe=Timeframe.H4, correlation_group="germany_index"),
+    Instrument(symbol="SAP", market="SAP (NYSE ADR)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    Instrument(symbol="DB", market="Deutsche Bank (NYSE)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    Instrument(symbol="BNTX", market="BioNTech (Nasdaq ADR)", asset_class=AssetClass.EQUITY,
+               strategy="momentum_breakout", timeframe=Timeframe.H1),
 ]
