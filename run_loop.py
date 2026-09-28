@@ -51,8 +51,20 @@ STRATEGY_DE = {"mean_reversion": "Mean Reversion", "momentum_breakout": "Momentu
                "trend_following": "Trendfolge"}
 
 
-def trade_events(records) -> list[str]:
-    """German lines for real orders, rejections, exits and errors (not holds/skips)."""
+def result_text(entry: float, fill: tuple[float, float] | None) -> str:
+    """'Verkauf 151,20 $ — Ergebnis: +201,60 $ (+0,80 %)' from the entry and the sell fill."""
+    if not fill:
+        return "Ergebnis noch unbekannt (Ausführung beim Broker nicht bestätigt)"
+    qty, price = fill
+    pl = (price - entry) * qty
+    return (f"Verkauf {i18n.usd(price)} — **Ergebnis: {i18n.signed_usd(pl)}** "
+            f"({i18n.pct((price - entry) / entry * 100 if entry else 0)})")
+
+
+def trade_events(records, results: dict[str, str] | None = None) -> list[str]:
+    """German lines for real orders, rejections, exits and errors (not holds/skips).
+    results: per-symbol P/L text for exits (see result_text)."""
+    results = results or {}
     out = []
     for r in records:
         strat = STRATEGY_DE.get(r.strategy, r.strategy)
@@ -68,18 +80,27 @@ def trade_events(records) -> list[str]:
         elif r.action_taken == "rejected":
             out.append(f"- ⚠️ **{r.symbol}** Kauforder vom Broker abgelehnt ({strat}: {reason})")
         elif r.action_taken == "exit":
-            out.append(f"- 🔴 **{r.symbol}** verkauft ({strat}: {reason})")
+            res = f" — {results[r.symbol]}" if r.symbol in results else ""
+            out.append(f"- 🔴 **{r.symbol}** verkauft ({strat}: {reason}){res}")
     return out
 
 
-def broker_closed_events(state, current: dict) -> list[str]:
+def _order_symbol(position_symbol: str) -> str:
+    import config
+    inst = next((i for i in config.INSTRUMENTS if i.position_symbol == position_symbol), None)
+    return inst.symbol if inst else position_symbol
+
+
+def broker_closed_events(state, current: dict, broker=None) -> list[str]:
     """Positions that vanished since the last tick without the bot closing them — i.e. the
-    protective stop (or another order at the broker) closed them. The bot never sees those fills."""
+    protective stop (or another order at the broker) closed them. The fill is looked up at the
+    broker for the P/L."""
     out = []
     for sym, (qty, entry) in state.positions.items():
         if sym not in current and sym not in state.own_exits:
+            fill = broker.last_sell_fill(_order_symbol(sym)) if broker else None
             out.append(f"- 🛑 **{sym}** vom Schutz-Stop beim Broker verkauft: {i18n.qty(qty)} Stück, "
-                       f"Einstieg {i18n.usd(entry)}")
+                       f"Einstieg {i18n.usd(entry)}, {result_text(entry, fill)}")
     return out
 
 
@@ -100,7 +121,7 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     """One tick + trade notifications + a brief if due. Collaborators are injectable for tests."""
     now = datetime.now(timezone.utc)
     current = broker.get_positions()
-    stopped = broker_closed_events(state, current)
+    stopped = broker_closed_events(state, current, broker)
     # No immediate re-entry after a stop-out (it re-bought USO in the same tick it was stopped).
     for sym in state.positions:
         if sym not in current and sym not in state.own_exits:
@@ -117,7 +138,13 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     for r in records:
         if r.action_taken != "hold" or r.error:
             log.info("%-8s %s %s", r.symbol, r.action_taken, r.error or (r.signal.reason if r.signal else ""))
-    events = stopped + trade_events(records)
+    results = {}
+    for r in records:
+        pos = current.get(r.symbol.replace("/", ""))
+        if r.action_taken == "exit" and pos:
+            fill = broker.last_sell_fill(r.symbol, since=now, wait=5.0)
+            results[r.symbol] = result_text(pos.avg_entry_price, fill)
+    events = stopped + trade_events(records, results)
     state.positions = {s: [p.qty, p.avg_entry_price] for s, p in broker.get_positions().items()}
     state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
     save_state(state)

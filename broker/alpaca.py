@@ -141,6 +141,24 @@ class AlpacaBroker(BrokerAdapter):
             raise RuntimeError(f"Stop replace rejected ({r.status_code}): {r.text}")
         return r.json().get("id")
 
+    def last_sell_fill(self, symbol: str, since: datetime | None = None,
+                       wait: float = 0.0) -> tuple[float, float] | None:
+        # Without nested=true, OTO stop legs are listed as orders of their own.
+        deadline = time.monotonic() + wait
+        while True:
+            r = self._client.get("/v2/orders", params={"status": "closed", "symbols": symbol,
+                                                       "direction": "desc", "limit": 20})
+            if r.status_code < 400:
+                for d in r.json():
+                    if d.get("side") != "sell" or not d.get("filled_avg_price") or not d.get("filled_at"):
+                        continue
+                    if since and _parse_ts(d["filled_at"]) < since:
+                        break  # newest first: everything after this is older still
+                    return float(d["filled_qty"]), float(d["filled_avg_price"])
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(self.poll_interval * 2)
+
     _DONE = {"canceled", "filled", "expired", "rejected", "replaced"}
 
     def _wait_until_done(self, order_ids: list[str], timeout: float) -> None:

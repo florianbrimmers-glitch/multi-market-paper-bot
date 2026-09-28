@@ -12,6 +12,10 @@ def usd(x: float) -> str:
     return f"{num(x)} $"
 
 
+def signed_usd(x: float) -> str:
+    return f"{'+' if x >= 0 else '−'}{usd(abs(x))}"
+
+
 def pct(x: float) -> str:
     return f"{'+' if x >= 0 else '−'}{num(abs(x))} %"
 

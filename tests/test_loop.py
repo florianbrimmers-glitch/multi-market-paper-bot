@@ -158,6 +158,7 @@ def test_stop_out_at_broker_is_reported_once():
     b.trigger_stops("USO", bar_low=148.0)  # the stop fills at the broker between ticks
     loop_once(b, state, **kw)
     assert len(posted) == 1 and "🛑 **USO** vom Schutz-Stop beim Broker verkauft" in posted[0]
+    assert "Verkauf 148,50 $ — **Ergebnis: −15,00 $** (−1,00 %)" in posted[0]
     loop_once(b, state, **kw)
     assert len(posted) == 1  # reported once, not every tick
 
@@ -217,3 +218,25 @@ def test_cooldown_length_follows_timeframe():
     now = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
     assert cooldown_until("USO", now) == "2026-09-26T12:00:00+00:00"   # 4h bars -> 24h
     assert cooldown_until("SPY", now) == "2026-09-25T13:30:00+00:00"   # 15m bars -> 90 min
+
+
+def test_own_exit_reports_profit_in_dollars(monkeypatch):
+    from models import Order, Side
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("GLD", 100.0)
+    b.submit_order(Order(symbol="GLD", side=Side.BUY, qty=20))
+    b.set_price("GLD", 103.0)
+    state = BriefState(morning="2026-09-25", positions={"GLD": [20, 100.0]})
+    posted = []
+    fetch = lambda inst: fx.downtrend() if inst.symbol == "GLD" else fx.flat_series()  # trend over
+    loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None, fetch=fetch,
+              notify=posted.append, price_of=lambda inst: None)
+    assert "🔴 **GLD** verkauft" in posted[0]
+    assert "Verkauf 103,00 $ — **Ergebnis: +60,00 $** (+3,00 %)" in posted[0]
+
+
+def test_result_text_without_confirmed_fill():
+    from run_loop import result_text
+    assert "unbekannt" in result_text(100.0, None)

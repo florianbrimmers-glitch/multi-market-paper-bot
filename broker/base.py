@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from models import Account, Clock, Order, Position
 
@@ -31,3 +32,9 @@ class BrokerAdapter(ABC):
     @abstractmethod
     def close_position(self, symbol: str) -> Order | None:
         """Flatten a position (and cancel its resting orders); None if nothing held."""
+
+    def last_sell_fill(self, symbol: str, since: datetime | None = None,
+                       wait: float = 0.0) -> tuple[float, float] | None:
+        """(qty, avg price) of the most recent filled sell of `symbol`, if the broker reports it.
+        `since` ignores older fills; `wait` gives a just-sent order a few seconds to fill."""
+        return None

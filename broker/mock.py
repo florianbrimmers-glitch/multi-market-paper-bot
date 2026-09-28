@@ -28,6 +28,7 @@ class MockBroker(BrokerAdapter):
         self.resting: list[Order] = []
         self.market_open = True
         self.fixed_clock: Clock | None = None
+        self.sell_fills: list[tuple[str, float, float]] = []  # (symbol key, qty, price)
 
     def set_price(self, symbol: str, price: float) -> None:
         k = _key(symbol)
@@ -71,6 +72,7 @@ class MockBroker(BrokerAdapter):
             if pos:
                 qty = min(order.qty, pos.qty)
                 self.cash += qty * price
+                self.sell_fills.append((k, qty, price))
                 pos.qty -= qty
                 if pos.qty <= 1e-9:
                     del self._positions[k]
@@ -104,6 +106,10 @@ class MockBroker(BrokerAdapter):
         if not pos:
             return None
         return self.submit_order(Order(symbol=symbol, side=Side.SELL, qty=pos.qty))
+
+    def last_sell_fill(self, symbol, since=None, wait=0.0):
+        k = _key(symbol)
+        return next(((q, p) for s, q, p in reversed(self.sell_fills) if s == k), None)
 
     def mark_day_close(self) -> None:
         self.last_equity = self.get_account().equity

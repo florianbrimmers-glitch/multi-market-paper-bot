@@ -130,7 +130,8 @@ Alpaca-Börsenuhr. Die US-Sommerzeit wird dadurch automatisch berücksichtigt.
 - In einem öffentlichen Repo kann jeder die Briefings und Logs lesen (Papiergeld). Die Keys
   bleiben geheim.
 
-**Trade-Meldungen:** Jede echte Papier-Order (mit Stückzahl und Stop), jeder Verkauf, jeder
+**Trade-Meldungen:** Jede echte Papier-Order (mit Stückzahl und Stop), jeder Verkauf (mit Gewinn
+ oder Verlust in Dollar und Prozent), jeder
 ausgelöste Stop, jede Ablehnung und jeder Fehler landet als Kommentar im Issue **„Trade-Log“**.
 Du bekommst zu jeder Meldung eine Benachrichtigung und kannst die Trades verfolgen, während der
 Job noch läuft. GitHub zeigt die Actions-Logs eines Jobs nämlich erst an, wenn er fertig ist.
