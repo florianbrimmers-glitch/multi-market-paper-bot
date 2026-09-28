@@ -111,3 +111,29 @@ def test_entry_and_stop_use_live_price_not_stale_bar_close(log_path, monkeypatch
     uso = next(r for r in recs if r.symbol == "USO")
     assert uso.plan.entry_price == 149.96
     assert uso.plan.stop_price == pytest.approx(149.96 * 0.99, abs=0.01)  # within the 1% cap of the real price
+
+
+def test_mean_reversion_waits_out_the_opening_phase(log_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    import engine.trader
+    monkeypatch.setenv("DRY_RUN", "false")
+    # 13:45 UTC = 09:45 New York: 15 minutes into the session
+    monkeypatch.setattr(engine.trader, "_now", lambda: datetime(2026, 9, 28, 13, 45, tzinfo=timezone.utc))
+    broker = MockBroker()
+    broker.set_price("SPY", 90.0)
+    broker.set_price("GLD", 100.0)
+    fetch = lambda inst: (fx.flat_then_drop() if inst.symbol == "SPY"
+                          else fx.uptrend() if inst.symbol == "GLD" else fx.flat_series())
+    records = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
+    assert records["SPY"].action_taken == "skipped:opening phase"
+    assert records["GLD"].action_taken == "submitted"  # trend following is not delayed
+    assert "SPY" not in broker.get_positions()
+
+
+def test_minutes_since_us_open_handles_new_york_time():
+    from datetime import datetime, timezone
+
+    from engine.trader import minutes_since_us_open
+    assert minutes_since_us_open(datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)) == 0  # EDT
+    assert minutes_since_us_open(datetime(2026, 12, 1, 15, 0, tzinfo=timezone.utc)) == 30  # EST

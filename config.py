@@ -79,6 +79,19 @@ def max_stop_pct() -> float:
     return _env_float("MAX_STOP_PCT", 0.01)
 
 
+def min_stop_pct() -> float:
+    """Stop floor: a stop is never closer than this fraction to entry (default 0.5%), so normal
+    noise doesn't trigger it right away."""
+    return _env_float("MIN_STOP_PCT", 0.005)
+
+
+def opening_delay_min() -> float:
+    """Minutes after the US open during which mean reversion opens no new positions (default 30).
+    Its lookback still spans the previous session then, so the overnight gap alone would read as
+    an oversold signal."""
+    return _env_float("OPENING_DELAY_MIN", 30)
+
+
 def atr_stop_mult() -> float:
     """Intended stop distance = this multiple of ATR, before the hard cap."""
     return _env_float("ATR_STOP_MULT", 1.5)

@@ -7,13 +7,15 @@
 ETF entries carry their stop as a linked OTO order (active only once the entry fills). Crypto
 can't use OTO on Alpaca, so its stop (a stop-limit) is placed by the safety net after the fill.
 ETFs are only traded while the US session is open; nothing is sent while an order is pending.
+Mean reversion opens nothing in the first OPENING_DELAY_MIN minutes of the session.
 """
 from __future__ import annotations
 
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 import config
 import logbuch
@@ -28,6 +30,19 @@ logger = logging.getLogger(__name__)
 _GROUP_OF = {i.position_symbol: i.correlation_group for i in config.INSTRUMENTS}
 _BY_POS_SYMBOL = {i.position_symbol: i for i in config.INSTRUMENTS}
 CRYPTO_STOP_LIMIT_SLIPPAGE = 0.005  # stop-limit floor 0.5% below the trigger
+_NEW_YORK = ZoneInfo("America/New_York")
+_US_OPEN = time(9, 30)
+_OPENING_DELAYED = {"mean_reversion"}
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def minutes_since_us_open(now: datetime) -> float:
+    ny = now.astimezone(_NEW_YORK)
+    return (ny - ny.replace(hour=_US_OPEN.hour, minute=_US_OPEN.minute, second=0, microsecond=0)
+            ).total_seconds() / 60
 
 
 def _fetch(inst: Instrument) -> list[Bar]:
@@ -86,6 +101,7 @@ def run_tick(
     positions = broker.get_positions()
     open_orders = broker.get_open_orders()
     market_open = broker.is_market_open()
+    opening_phase = market_open and minutes_since_us_open(_now()) < config.opening_delay_min()
     if not dry:
         ensure_protective_stops(broker, positions, open_orders)
     pending_buys = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.BUY}
@@ -108,6 +124,9 @@ def run_tick(
                 rec.action_taken = "hold"
             elif not session_ok:
                 rec.action_taken = "skipped:market closed"
+            elif (signal.action == Action.ENTER_LONG and opening_phase and not crypto
+                  and inst.strategy in _OPENING_DELAYED):
+                rec.action_taken = "skipped:opening phase"
             elif signal.action == Action.ENTER_LONG and sym in blocked:
                 rec.action_taken = "skipped:cooldown after stop-out"
             elif sym in pending_buys:

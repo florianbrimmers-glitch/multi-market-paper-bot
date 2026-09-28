@@ -26,10 +26,10 @@ def test_hard_stop_caps_distance_at_one_percent():
 def test_sizing_uses_atr_and_notional_cap():
     dec = size_entry("SPY", 100.0, fx.flat_series(), _account(), positions={})
     assert dec.approved
-    # risk $500 / stop 0.3 = 1666 shares, capped by 25% notional => 250 shares
+    # ATR stop 0.3 is below the 0.5% floor -> stop 0.5; $500 / 0.5 = 1000, 25% cap => 250 shares
     assert dec.plan.qty == 250
-    assert dec.plan.stop_price == 99.70
-    assert dec.plan.risk_amount == pytest.approx(75.0)
+    assert dec.plan.stop_price == 99.50
+    assert dec.plan.risk_amount == pytest.approx(125.0)
     assert dec.plan.side == Side.BUY
 
 
@@ -68,3 +68,13 @@ def test_crypto_allows_fractional_qty():
     dec = size_entry("BTCUSD", 50_000.0, fx.flat_series(level=50_000.0), _account(), {},
                      allow_fractional=True)
     assert dec.plan.qty == pytest.approx(0.5)
+
+
+def test_stop_is_at_least_half_a_percent_away():
+    calm = [fx.bar(100.0, i, high=100.01, low=99.99) for i in range(20)]
+    assert stop_distance(100.0, calm) == pytest.approx(0.5)
+
+
+def test_atr_stop_between_floor_and_cap_is_kept():
+    mid = [fx.bar(100.0, i, high=100.25, low=99.75) for i in range(20)]  # ATR 0.5 -> 0.75
+    assert stop_distance(100.0, mid) == pytest.approx(0.75)

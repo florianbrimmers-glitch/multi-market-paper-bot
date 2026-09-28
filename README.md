@@ -33,8 +33,9 @@ deshalb ihre **US-Notierungen**. Sie werden in USD und zu US-Börsenzeiten gehan
 aber dieselben Unternehmen und Indizes ab.
 
 **Risikoregeln für jeden Trade:**
-- **Schutz-Stop:** Er liegt höchstens 1 % unter dem Einstiegskurs (`MAX_STOP_PCT`) und bleibt
-  über Tage aktiv (`gtc`). Einstiegskurs und Stop werden aus dem **aktuellen Live-Kurs**
+- **Schutz-Stop:** Er liegt mindestens 0,5 % (`MIN_STOP_PCT`) und höchstens 1 % (`MAX_STOP_PCT`)
+  unter dem Einstiegskurs und bleibt über Tage aktiv (`gtc`). Die Untergrenze verhindert, dass
+  normales Kursrauschen einen sehr engen Stop sofort auslöst. Einstiegskurs und Stop werden aus dem **aktuellen Live-Kurs**
   berechnet, nicht aus dem Schlusskurs der letzten Kerze.
   - Bei ETFs und Aktien hängt der Stop als verknüpfte Order (OTO) am Kauf. Er wird erst aktiv,
     wenn der Kauf ausgeführt ist.
@@ -45,6 +46,9 @@ aber dieselben Unternehmen und Indizes ab.
   (`RISK_PER_TRADE_PCT`). Der Stop-Abstand ergibt sich aus der ATR. Eine Position ist zusätzlich
   auf 25 % des Kontos (`MAX_POSITION_PCT`) und die verfügbare Kaufkraft begrenzt.
 - **Korrelationsfilter:** SPY und QQQ werden nie gleichzeitig gekauft, EWG und DAX ebenfalls nicht.
+- **Eröffnungsphase:** In den ersten 30 Minuten nach der US-Eröffnung (`OPENING_DELAY_MIN`)
+  kauft Mean Reversion nichts. Die 15-Minuten-Kerzen stammen dann noch größtenteils vom Vortag,
+  und die Kurslücke über Nacht würde sonst als Kaufsignal gelten. Verkäufe laufen normal weiter.
 - **Sperre nach einem Stop-out:** Wurde eine Position ausgestoppt, kauft der Bot diesen Markt
   6 Kerzen lang nicht neu. Das sind 24 Stunden bei 4-Stunden-Kerzen, 6 Stunden bei
   1-Stunden-Kerzen und 90 Minuten bei 15-Minuten-Kerzen.

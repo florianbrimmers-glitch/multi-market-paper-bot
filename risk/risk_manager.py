@@ -1,6 +1,7 @@
 """Risk engine: hard stop cap, volatility-based sizing, correlation filter.
 
-1. Stop distance = ATR_STOP_MULT * ATR, never more than MAX_STOP_PCT (default 1%) from entry.
+1. Stop distance = ATR_STOP_MULT * ATR, at least MIN_STOP_PCT (0.5%) and never more than
+   MAX_STOP_PCT (1%) from entry.
 2. qty = (equity * RISK_PER_TRADE_PCT) / stop distance, capped at MAX_POSITION_PCT of equity
    in notional and by available buying power.
 3. Two instruments in the same correlation group (SPY & QQQ) can't both be long.
@@ -27,10 +28,11 @@ class RiskDecision:
 
 def stop_distance(entry_price: float, bars: list[Bar]) -> float:
     hard_cap = entry_price * config.max_stop_pct()
+    floor = min(entry_price * config.min_stop_pct(), hard_cap)
     a = atr(bars, config.STRATEGY_PARAMS.atr_period)
     if not a or a <= 0:
         return hard_cap
-    return min(a * config.atr_stop_mult(), hard_cap)
+    return max(min(a * config.atr_stop_mult(), hard_cap), floor)
 
 
 def size_entry(
