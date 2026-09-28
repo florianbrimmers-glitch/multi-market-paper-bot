@@ -1,0 +1,26 @@
+name: Sells Report
+
+# Read-only: lists the day's filled paper sells with their result (see run_fills.py).
+
+on:
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "Date YYYY-MM-DD (empty = today, New York)"
+        required: false
+        default: ""
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Report
+        run: python run_fills.py ${{ github.event.inputs.day }} | tee out.txt && cat out.txt >> "$GITHUB_STEP_SUMMARY"
