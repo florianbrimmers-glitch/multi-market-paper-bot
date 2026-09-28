@@ -134,6 +134,13 @@ class AlpacaBroker(BrokerAdapter):
         order.filled_price = float(fp) if fp else None
         return order
 
+    def replace_stop(self, order_id: str, stop_price: float) -> str:
+        """Move a resting stop (also an OTO stop leg) to a new trigger. Returns the new order id."""
+        r = self._client.patch(f"/v2/orders/{order_id}", json={"stop_price": str(stop_price)})
+        if r.status_code >= 400:
+            raise RuntimeError(f"Stop replace rejected ({r.status_code}): {r.text}")
+        return r.json().get("id")
+
     _DONE = {"canceled", "filled", "expired", "rejected", "replaced"}
 
     def _wait_until_done(self, order_ids: list[str], timeout: float) -> None:

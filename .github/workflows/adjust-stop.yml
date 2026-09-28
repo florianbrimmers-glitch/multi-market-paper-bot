@@ -1,0 +1,29 @@
+name: Adjust Stop
+
+# Manually move the protective stop of one open paper position (see run_adjust_stop.py).
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Symbol, e.g. SPY"
+        required: true
+      pct:
+        description: "Distance below the average entry, as a fraction (0.005 = 0.5%)"
+        required: true
+        default: "0.005"
+
+jobs:
+  adjust:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Move stop
+        run: python run_adjust_stop.py "${{ github.event.inputs.symbol }}" "${{ github.event.inputs.pct }}" | tee out.txt && cat out.txt >> "$GITHUB_STEP_SUMMARY"
