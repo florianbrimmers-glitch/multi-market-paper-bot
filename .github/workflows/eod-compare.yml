@@ -1,0 +1,21 @@
+name: EOD Compare
+
+# Read-only backtest: mean reversion held overnight vs. flattened before the close.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Compare
+        run: python run_eod_compare.py | tee out.txt && cat out.txt >> "$GITHUB_STEP_SUMMARY"

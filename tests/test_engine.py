@@ -137,3 +137,49 @@ def test_minutes_since_us_open_handles_new_york_time():
     from engine.trader import minutes_since_us_open
     assert minutes_since_us_open(datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)) == 0  # EDT
     assert minutes_since_us_open(datetime(2026, 12, 1, 15, 0, tzinfo=timezone.utc)) == 30  # EST
+
+
+def _closing_clock(minutes_left: float):
+    from datetime import datetime, timedelta, timezone
+
+    from models import Clock
+    now = datetime(2026, 9, 29, 19, 45, tzinfo=timezone.utc)
+    return Clock(timestamp=now, is_open=True, next_open=now + timedelta(hours=18),
+                 next_close=now + timedelta(minutes=minutes_left))
+
+
+def _held(broker, symbol, entry, now_price):
+    from models import Order, Side
+    broker.set_price(symbol, entry)
+    broker.submit_order(Order(symbol=symbol, side=Side.BUY, qty=10, stop_loss=round(entry * 0.99, 2)))
+    broker.set_price(symbol, now_price)
+
+
+@pytest.mark.parametrize("mode,winner_sold,loser_sold", [("all", True, True), ("winners", True, False),
+                                                         ("off", False, False)])
+def test_mean_reversion_is_flattened_before_the_close(log_path, monkeypatch, mode, winner_sold, loser_sold):
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("EOD_FLAT_MODE", mode)
+    broker = MockBroker()
+    broker.fixed_clock = _closing_clock(14.7)
+    _held(broker, "SPY", 100.0, 99.5)   # below the mean (no exit signal of its own), in profit? no: loser
+    _held(broker, "SAP", 100.0, 100.5)  # in profit
+    _held(broker, "GLD", 100.0, 99.5)   # trend following: never flattened
+    fetch = lambda inst: (fx.flat_then_drop(drop_to=99.0) if inst.symbol in ("SPY", "SAP")
+                          else fx.uptrend() if inst.symbol == "GLD" else fx.flat_series())
+    records = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
+    assert (records["SAP"].action_taken == "exit") is winner_sold
+    assert (records["SPY"].action_taken == "exit") is loser_sold
+    assert records["GLD"].action_taken != "exit" and "GLD" in broker.get_positions()
+    if winner_sold:
+        assert records["SAP"].signal.reason == "Glattstellung vor Börsenschluss"
+
+
+def test_no_mean_reversion_entry_in_the_last_30_minutes(log_path, monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    broker = MockBroker()
+    broker.fixed_clock = _closing_clock(29.7)
+    broker.set_price("SPY", 90.0)
+    fetch = lambda inst: fx.flat_then_drop() if inst.symbol == "SPY" else fx.flat_series()
+    spy = next(r for r in run_tick(broker, fetch=fetch, run_id="t") if r.symbol == "SPY")
+    assert spy.action_taken == "skipped:closing phase"

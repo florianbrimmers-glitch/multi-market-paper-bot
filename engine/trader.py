@@ -7,7 +7,8 @@
 ETF entries carry their stop as a linked OTO order (active only once the entry fills). Crypto
 can't use OTO on Alpaca, so its stop (a stop-limit) is placed by the safety net after the fill.
 ETFs are only traded while the US session is open; nothing is sent while an order is pending.
-Mean reversion opens nothing in the first OPENING_DELAY_MIN minutes of the session.
+Mean reversion opens nothing in the first OPENING_DELAY_MIN minutes of the session, nothing in
+the last EOD_NO_ENTRY_MIN minutes, and is flattened in the last EOD_FLAT_MIN (see EOD_FLAT_MODE).
 """
 from __future__ import annotations
 
@@ -33,6 +34,8 @@ CRYPTO_STOP_LIMIT_SLIPPAGE = 0.005  # stop-limit floor 0.5% below the trigger
 _NEW_YORK = ZoneInfo("America/New_York")
 _US_OPEN = time(9, 30)
 _OPENING_DELAYED = {"mean_reversion"}
+_EOD_FLAT = {"mean_reversion"}  # intraday by design: not held overnight (gap risk)
+EOD_REASON = "Glattstellung vor Börsenschluss"
 
 
 def _now() -> datetime:
@@ -100,8 +103,13 @@ def run_tick(
     account = broker.get_account()
     positions = broker.get_positions()
     open_orders = broker.get_open_orders()
-    market_open = broker.is_market_open()
+    clock = broker.clock()
+    market_open = clock.is_open
     opening_phase = market_open and minutes_since_us_open(_now()) < config.opening_delay_min()
+    to_close = (clock.next_close - clock.timestamp).total_seconds() / 60 if market_open else None
+    closing_phase = to_close is not None and to_close <= config.eod_no_entry_min()
+    flatten_phase = to_close is not None and to_close <= config.eod_flat_min()
+    eod_mode = config.eod_flat_mode()
     if not dry:
         ensure_protective_stops(broker, positions, open_orders)
     pending_buys = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.BUY}
@@ -116,9 +124,14 @@ def run_tick(
             in_position = sym in positions and positions[sym].is_long
             signal = build_strategy(inst.strategy, config.STRATEGY_PARAMS).generate_signal(
                 inst.symbol, bars, in_position)
-            rec.signal = signal
             crypto = inst.asset_class == AssetClass.CRYPTO
             session_ok = crypto or market_open
+            if (in_position and flatten_phase and not crypto and inst.strategy in _EOD_FLAT
+                    and signal.action != Action.EXIT and eod_mode != "off"
+                    and (eod_mode == "all" or positions[sym].unrealized_pl > 0)):
+                signal = signal.model_copy(update={"action": Action.EXIT,
+                                                   "reason": EOD_REASON})
+            rec.signal = signal
 
             if not signal.is_actionable or (signal.action == Action.EXIT) != in_position:
                 rec.action_taken = "hold"
@@ -127,6 +140,9 @@ def run_tick(
             elif (signal.action == Action.ENTER_LONG and opening_phase and not crypto
                   and inst.strategy in _OPENING_DELAYED):
                 rec.action_taken = "skipped:opening phase"
+            elif (signal.action == Action.ENTER_LONG and closing_phase and not crypto
+                  and inst.strategy in _EOD_FLAT):
+                rec.action_taken = "skipped:closing phase"
             elif signal.action == Action.ENTER_LONG and sym in blocked:
                 rec.action_taken = "skipped:cooldown after stop-out"
             elif sym in pending_buys:

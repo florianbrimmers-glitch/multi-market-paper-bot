@@ -5,12 +5,29 @@ Validates behaviour on history. It is NOT a profit projection.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import config
 from broker.mock import MockBroker
 from models import Action, Bar, Order, OrderType, Side
 from risk import size_entry
 from strategies import build_strategy
+
+_NY = ZoneInfo("America/New_York")
+_OPEN, _CLOSE = time(9, 30), time(16, 0)
+
+
+def _session_minutes(bar: Bar, bar_minutes: int) -> tuple[float, float] | None:
+    """(minutes since open, minutes to close) at the moment this bar has closed and the live
+    loop would evaluate it; None outside the regular US session."""
+    t = (bar.timestamp + timedelta(minutes=bar_minutes)).astimezone(_NY)
+    day = t.date()
+    opened = datetime.combine(day, _OPEN, _NY)
+    closes = datetime.combine(day, _CLOSE, _NY)
+    if not (opened < t <= closes):
+        return None
+    return (t - opened).total_seconds() / 60, (closes - t).total_seconds() / 60
 
 
 @dataclass
@@ -73,8 +90,13 @@ class BacktestResult:
 
 
 def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bool = False,
-                    starting_equity: float = 100_000.0) -> BacktestResult:
+                    starting_equity: float = 100_000.0, eod_mode: str | None = None,
+                    bar_minutes: int | None = None) -> BacktestResult:
+    """eod_mode (mean reversion on equities): None = no session rules; otherwise the live rules
+    (no entries in the first 30 / last 30 minutes) plus 'all' | 'winners' | 'off' at the close.
+    bar_minutes: bar length, needed for the session rules."""
     broker = MockBroker(starting_equity)
+    session_rules = eod_mode is not None and not crypto and bar_minutes
     strat = build_strategy(strategy_name, config.STRATEGY_PARAMS)
     res = BacktestResult(symbol, strategy_name, starting_equity, starting_equity)
     open_trade: Trade | None = None
@@ -83,17 +105,31 @@ def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bo
         window = bars[: i + 1]
         broker.set_price(symbol, bar.close)
 
-        # A resting stop can be hit intrabar before any new signal.
+        session = _session_minutes(bar, bar_minutes) if session_rules else None
+        if session_rules and session is None:
+            res.equity_curve.append(broker.get_account().equity)
+            continue  # outside regular hours: the live loop doesn't trade equities then
+
+        # A resting stop can be hit intrabar before any new signal; a gap fills at the open.
         if open_trade:
-            hit = broker.trigger_stops(symbol, bar.low)
+            hit = broker.trigger_stops(symbol, bar.low, bar_open=bar.open)
             if hit:
                 open_trade.exit_time = bar.timestamp.isoformat()
-                open_trade.exit_price = hit[0].stop_price
+                open_trade.exit_price = hit[0].filled_price
                 open_trade.reason_out = "hard stop hit"
                 open_trade = None
                 broker.set_price(symbol, bar.close)
 
         sig = strat.generate_signal(symbol, window, open_trade is not None)
+        if session:
+            since_open, to_close = session
+            if (open_trade and sig.action != Action.EXIT and eod_mode != "off"
+                    and to_close <= config.eod_flat_min()
+                    and (eod_mode == "all" or bar.close > open_trade.entry_price)):
+                sig.action, sig.reason = Action.EXIT, "eod flat"
+            if sig.action == Action.ENTER_LONG and (since_open < config.opening_delay_min()
+                                                    or to_close <= config.eod_no_entry_min()):
+                sig.action = Action.HOLD
         if sig.action == Action.EXIT and open_trade:
             broker.close_position(symbol)
             open_trade.exit_time, open_trade.exit_price = bar.timestamp.isoformat(), bar.close

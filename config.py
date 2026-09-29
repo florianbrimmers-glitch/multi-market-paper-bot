@@ -92,6 +92,23 @@ def opening_delay_min() -> float:
     return _env_float("OPENING_DELAY_MIN", 30)
 
 
+def eod_flat_mode() -> str:
+    """Mean reversion before the US close: 'all' sells every open position, 'winners' only those
+    in profit, 'off' holds overnight."""
+    mode = os.environ.get("EOD_FLAT_MODE", "all").strip().lower()
+    return mode if mode in ("all", "winners", "off") else "all"
+
+
+def eod_flat_min() -> float:
+    """Mean reversion positions are closed once the session has at most this many minutes left."""
+    return _env_float("EOD_FLAT_MIN", 15)
+
+
+def eod_no_entry_min() -> float:
+    """No new mean-reversion entries once the session has at most this many minutes left."""
+    return _env_float("EOD_NO_ENTRY_MIN", 30)
+
+
 def atr_stop_mult() -> float:
     """Intended stop distance = this multiple of ATR, before the hard cap."""
     return _env_float("ATR_STOP_MULT", 1.5)

@@ -91,12 +91,14 @@ class MockBroker(BrokerAdapter):
                                     type=OrderType.STOP, stop_price=order.stop_loss))
         return order
 
-    def trigger_stops(self, symbol: str, bar_low: float) -> list[Order]:
-        """Fill resting stops for `symbol` whose stop price was touched by `bar_low`."""
+    def trigger_stops(self, symbol: str, bar_low: float, bar_open: float | None = None) -> list[Order]:
+        """Fill resting stops for `symbol` whose stop price was touched by `bar_low`. If the bar
+        opened below the stop (a gap), the fill is the open, not the stop — like a real stop order."""
         hit = [o for o in self.resting if _key(o.symbol) == _key(symbol) and bar_low <= (o.stop_price or 0)]
         for o in hit:
             self.resting.remove(o)
-            self._fill(o, o.stop_price)
+            price = min(o.stop_price, bar_open) if bar_open is not None else o.stop_price
+            self._fill(o, price)
         return hit
 
     def close_position(self, symbol: str) -> Order | None:
