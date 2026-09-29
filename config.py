@@ -95,8 +95,8 @@ def opening_delay_min() -> float:
 def eod_flat_mode() -> str:
     """Mean reversion before the US close: 'all' sells every open position, 'winners' only those
     in profit, 'off' holds overnight."""
-    mode = os.environ.get("EOD_FLAT_MODE", "all").strip().lower()
-    return mode if mode in ("all", "winners", "off") else "all"
+    mode = os.environ.get("EOD_FLAT_MODE", "off").strip().lower()
+    return mode if mode in ("all", "winners", "off") else "off"
 
 
 def eod_flat_min() -> float:
