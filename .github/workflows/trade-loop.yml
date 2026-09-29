@@ -45,6 +45,7 @@ jobs:
       ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}
+      EOD_FLAT_MODE: ${{ vars.EOD_FLAT_MODE || 'off' }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4

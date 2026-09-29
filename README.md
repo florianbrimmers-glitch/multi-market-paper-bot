@@ -49,6 +49,11 @@ aber dieselben Unternehmen und Indizes ab.
 - **Eröffnungsphase:** In den ersten 30 Minuten nach der US-Eröffnung (`OPENING_DELAY_MIN`)
   kauft Mean Reversion nichts. Die 15-Minuten-Kerzen stammen dann noch größtenteils vom Vortag,
   und die Kurslücke über Nacht würde sonst als Kaufsignal gelten. Verkäufe laufen normal weiter.
+- **Handelsschluss (Mean Reversion):** In den letzten 30 Minuten vor US-Börsenschluss kauft Mean
+  Reversion nichts Neues. Ob offene Positionen beim letzten Check vor Schluss verkauft werden,
+  steuert die Repo-Variable `EOD_FLAT_MODE`: `off` (Standard, über Nacht halten), `winners` (nur
+  Positionen im Plus verkaufen) oder `all` (alle verkaufen). `EOD Compare` unter Actions vergleicht
+  die drei Varianten im Backtest.
 - **Sperre nach einem Stop-out:** Wurde eine Position ausgestoppt, kauft der Bot diesen Markt
   6 Kerzen lang nicht neu. Das sind 24 Stunden bei 4-Stunden-Kerzen, 6 Stunden bei
   1-Stunden-Kerzen und 90 Minuten bei 15-Minuten-Kerzen.
