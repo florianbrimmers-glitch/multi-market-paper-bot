@@ -53,23 +53,28 @@ def _fetch(inst: Instrument) -> list[Bar]:
     return fetch_bars(inst.symbol, inst.asset_class, inst.timeframe)
 
 
-def protective_stop_order(inst: Instrument, qty: float, avg_entry: float) -> Order:
-    stop = round(avg_entry * (1 - config.max_stop_pct()), 2)
+def protective_stop_order(inst: Instrument, qty: float, avg_entry: float,
+                          distance: float | None = None) -> Order:
+    """Stop `distance` below the entry (the risk plan's); without one, the MAX_STOP_PCT cap."""
+    stop = round(avg_entry - distance if distance else avg_entry * (1 - config.max_stop_pct()), 2)
     if inst.asset_class == AssetClass.CRYPTO:
         return Order(symbol=inst.symbol, side=Side.SELL, qty=qty, type=OrderType.STOP_LIMIT,
                      stop_price=stop, limit_price=round(stop * (1 - CRYPTO_STOP_LIMIT_SLIPPAGE), 2))
     return Order(symbol=inst.symbol, side=Side.SELL, qty=qty, type=OrderType.STOP, stop_price=stop)
 
 
-def ensure_protective_stops(broker: BrokerAdapter, positions, open_orders: list[Order]) -> list[str]:
-    """Place a stop for any long position that has no resting sell order. Returns symbols fixed."""
+def ensure_protective_stops(broker: BrokerAdapter, positions, open_orders: list[Order],
+                            distances: dict[str, float] | None = None) -> list[str]:
+    """Place a stop for any long position that has no resting sell order. Returns symbols fixed.
+    distances: planned stop distance per symbol (else the MAX_STOP_PCT cap is used)."""
     protected = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.SELL}
     fixed: list[str] = []
     for sym, pos in positions.items():
         inst = _BY_POS_SYMBOL.get(sym)
         if inst is None or not pos.is_long or sym in protected:
             continue
-        o = broker.submit_order(protective_stop_order(inst, pos.qty, pos.avg_entry_price))
+        o = broker.submit_order(protective_stop_order(inst, pos.qty, pos.avg_entry_price,
+                                                      (distances or {}).get(sym)))
         if o.status != OrderStatus.REJECTED:
             fixed.append(sym)
             logger.warning("Placed missing protective stop for %s @ %s", sym, o.stop_price)
@@ -180,9 +185,14 @@ def run_tick(
                         pending_buys.add(sym)
                         # Count the new long so a correlated instrument later in this tick is filtered.
                         positions = broker.get_positions()
-                        if crypto:  # no OTO for crypto: protect as soon as it has filled
-                            ensure_protective_stops(broker, {sym: positions[sym]} if sym in positions else {},
-                                                    broker.get_open_orders())
+                        if crypto and sym in positions:  # no OTO for crypto: protect once filled
+                            # Same distance as planned, measured from the real fill; report that stop.
+                            dist = plan.entry_price - plan.stop_price
+                            ensure_protective_stops(broker, {sym: positions[sym]}, broker.get_open_orders(),
+                                                    {sym: dist})
+                            rec.plan = plan.model_copy(update={
+                                "entry_price": positions[sym].avg_entry_price,
+                                "stop_price": round(positions[sym].avg_entry_price - dist, 2)})
         except Exception as e:  # noqa: BLE001 — one instrument failing must not abort the tick
             rec.error = f"{type(e).__name__}: {e}"
             logger.exception("Error evaluating %s", inst.symbol)

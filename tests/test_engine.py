@@ -183,3 +183,21 @@ def test_no_mean_reversion_entry_in_the_last_30_minutes(log_path, monkeypatch):
     fetch = lambda inst: fx.flat_then_drop() if inst.symbol == "SPY" else fx.flat_series()
     spy = next(r for r in run_tick(broker, fetch=fetch, run_id="t") if r.symbol == "SPY")
     assert spy.action_taken == "skipped:closing phase"
+
+
+def test_crypto_stop_uses_the_planned_distance_from_the_real_fill(log_path, monkeypatch):
+    """Regression (2026-09-30): the BTC stop was placed at the 1% cap, not the planned 0.76%."""
+    from models import OrderType
+    monkeypatch.setenv("DRY_RUN", "false")
+    broker = MockBroker()
+    broker.set_price("BTC/USD", 110.0)
+    fetch = lambda inst: fx.breakout_with_volume() if inst.symbol == "BTC/USD" else fx.flat_series()
+    btc = next(r for r in run_tick(broker, fetch=fetch, run_id="t",
+                                   price_of=lambda inst: 109.0 if inst.symbol == "BTC/USD" else None)
+               if r.symbol == "BTC/USD")
+    assert btc.action_taken == "submitted"
+    stop = next(o for o in broker.resting if o.symbol == "BTC/USD")
+    assert stop.type == OrderType.STOP_LIMIT
+    assert btc.plan.entry_price == 110.0  # the real fill, not the 109 estimate
+    assert stop.stop_price == btc.plan.stop_price < 110.0
+    assert 110.0 - stop.stop_price < 110.0 * 0.01  # the planned (ATR) distance, not the 1% cap
