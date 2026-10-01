@@ -16,6 +16,7 @@ class Timeframe(str, Enum):
     M15 = "15Min"
     H1 = "1Hour"
     H4 = "4Hour"
+    D1 = "1Day"
 
 
 class Bar(BaseModel):

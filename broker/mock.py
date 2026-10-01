@@ -27,6 +27,7 @@ class MockBroker(BrokerAdapter):
         self.orders: list[Order] = []
         self.resting: list[Order] = []
         self.market_open = True
+        self.fill_market = True  # False: market orders stay open, like an Alpaca order not yet filled
         self.fixed_clock: Clock | None = None
         self.sell_fills: list[tuple[str, float, float]] = []  # (symbol key, qty, price)
 
@@ -82,7 +83,7 @@ class MockBroker(BrokerAdapter):
     def submit_order(self, order: Order) -> Order:
         order.id = str(next(self._ids))
         self.orders.append(order)
-        if order.type in (OrderType.STOP, OrderType.STOP_LIMIT):
+        if order.type in (OrderType.STOP, OrderType.STOP_LIMIT) or not self.fill_market:
             self.resting.append(order)
             return order
         self._fill(order, self._prices.get(_key(order.symbol), 0.0))

@@ -201,3 +201,15 @@ def test_crypto_stop_uses_the_planned_distance_from_the_real_fill(log_path, monk
     assert btc.plan.entry_price == 110.0  # the real fill, not the 109 estimate
     assert stop.stop_price == btc.plan.stop_price < 110.0
     assert 110.0 - stop.stop_price < 110.0 * 0.01  # the planned (ATR) distance, not the 1% cap
+
+
+def test_correlation_filter_counts_unfilled_entries(log_path, monkeypatch):
+    """Regression (2026-10-01): SPY's entry hadn't filled yet, so QQQ was bought in the same tick."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    broker = MockBroker()
+    broker.fill_market = False
+    broker.set_price("SPY", 90.0)
+    broker.set_price("QQQ", 90.0)
+    records = {r.symbol: r for r in run_tick(broker, fetch=_fetch(("SPY", "QQQ")), run_id="t")}
+    assert records["SPY"].action_taken == "submitted"
+    assert records["QQQ"].action_taken.startswith("skipped:correlation filter")

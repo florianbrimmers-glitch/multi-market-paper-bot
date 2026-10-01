@@ -22,7 +22,7 @@ import config
 import logbuch
 from broker.base import BrokerAdapter
 from config import Instrument
-from models import Action, AssetClass, Bar, Order, OrderStatus, OrderType, Side, TradeRecord
+from models import Action, AssetClass, Bar, Order, OrderStatus, OrderType, Position, Side, TradeRecord
 from risk import size_entry
 from strategies import build_strategy
 
@@ -162,10 +162,15 @@ def run_tick(
                     rec.action_taken = "exit_failed" if order and order.status == OrderStatus.REJECTED else "exit"
 
             else:  # ENTER_LONG, flat
+                # An entry that hasn't filled yet still counts for the correlation filter
+                # (2026-10-01: SPY and QQQ were both bought in one tick, SPY still unfilled).
+                held = dict(positions)
+                for s in pending_buys:
+                    held.setdefault(s, Position(symbol=s, qty=1, avg_entry_price=0.0))
                 decision = size_entry(
                     symbol=sym, entry_price=(price_of(inst) if price_of else None) or signal.ref_price,
                     bars=bars, account=account,
-                    positions=positions, correlation_group=inst.correlation_group, group_of=_GROUP_OF,
+                    positions=held, correlation_group=inst.correlation_group, group_of=_GROUP_OF,
                     allow_fractional=crypto,
                 )
                 rec.plan = decision.plan

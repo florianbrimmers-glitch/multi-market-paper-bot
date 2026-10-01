@@ -29,7 +29,9 @@ def todays_actions(now: datetime) -> list[str]:
 
 def build_brief(kind: str, broker) -> str:
     now = datetime.now(timezone.utc)
-    market_bars = {i.symbol: fetch_bars(i.symbol, i.asset_class, Timeframe.H1, limit=24)
+    # Last two daily bars: the move from the previous close (24 hourly bars spanned ~3 sessions
+    # for ETFs, so the same old drop showed up in several briefs in a row).
+    market_bars = {i.symbol: fetch_bars(i.symbol, i.asset_class, Timeframe.D1, limit=2)
                    for i in config.INSTRUMENTS}
     return render_brief(gather_brief_data(kind, broker, now.isoformat(), market_bars, todays_actions(now)))
 
