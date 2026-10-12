@@ -197,6 +197,15 @@ INSTRUMENTS: list[Instrument] = [
                strategy="mean_reversion", timeframe=Timeframe.M15, correlation_group="us_equity_index"),
     Instrument(symbol="XLE", market="US Energy Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
                strategy="mean_reversion", timeframe=Timeframe.M15),
+    # Second screen (2026-10-12, split-adjusted bars): same rule, positive in both halves.
+    Instrument(symbol="EEM", market="Emerging Markets (iShares ETF)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    Instrument(symbol="XLI", market="US Industrials Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    Instrument(symbol="XLP", market="US Consumer Staples Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    Instrument(symbol="AVGO", market="Broadcom (Nasdaq)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
     Instrument(symbol="BNTX", market="BioNTech (Nasdaq ADR)", asset_class=AssetClass.EQUITY,
                strategy="momentum_breakout", timeframe=Timeframe.H1),
 ]

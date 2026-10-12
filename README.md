@@ -28,6 +28,10 @@ Abend-Briefings, die Claude schreibt. Der Bot läuft auf einem kostenlosen
 | Deutsche Bank | `DB` (NYSE) | Mean Reversion | 15 Min |
 | US-Technologie | `XLK` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
 | US-Energie | `XLE` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
+| Schwellenländer | `EEM` (iShares ETF) | Mean Reversion | 15 Min |
+| US-Industrie | `XLI` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
+| US-Basiskonsum | `XLP` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
+| Broadcom | `AVGO` (Nasdaq) | Mean Reversion | 15 Min |
 | BioNTech | `BNTX` (Nasdaq) | Momentum-Ausbruch | 1 Std |
 
 **Pausierte Strategien (seit 12.10.2026):** Trendfolge und Momentum-Ausbruch eröffnen keine
@@ -41,7 +45,11 @@ aktiv). Vor einer Reaktivierung wird Trendfolge auf Tageskerzen über 1–2 Jahr
 `Backtest Screen` (180 Tage, 15-Min-Kerzen, Live-Regeln). Aufgenommen wurde nur, wer im Plus lag
 und in beiden Hälften des Zeitraums Gewinn machte: XLK (+5,1 %), XLE (+1,9 %) und EWG (+2,0 %).
 Nicht aufgenommen wurden IWM, DIA, XLF, XLV, SMH, GLD und TLT (Verlust oder nur in einer Hälfte
-Gewinn).
+Gewinn). Ein zweiter Screen mit 22 weiteren Kandidaten brachte EEM (+5,1 %), AVGO (+4,2 %), XLI
+(+2,9 %) und XLP (+1,7 %) dazu. Die Kurse sind um Splits und Dividenden bereinigt.
+
+Achtung: Wer aus vielen Kandidaten die besten eines Zeitraums auswählt, erwischt auch Glückstreffer.
+Die Backtest-Zahlen sind deshalb eine Obergrenze, keine Prognose.
 
 **Pausierte Einzelwerte:** `DB` kauft seit 12.10.2026 nichts Neues (−2,1 % im Screen, 41 von 72
 Trades ausgestoppt). Gesteuert über die Repo-Variable `PAUSED_SYMBOLS` (Standard `DB`).
