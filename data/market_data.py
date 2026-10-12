@@ -34,13 +34,14 @@ def latest_price(symbol: str, asset_class: AssetClass) -> float | None:
     return float(trade["p"]) if trade and trade.get("p") else None
 
 
-def fetch_bars(symbol: str, asset_class: AssetClass, timeframe: Timeframe, limit: int = 200) -> list[Bar]:
-    """Return up to `limit` most-recent bars, chronological (oldest first)."""
+def fetch_bars(symbol: str, asset_class: AssetClass, timeframe: Timeframe, limit: int = 200,
+               days: int = 120) -> list[Bar]:
+    """Return up to `limit` most-recent bars from the last `days` days, chronological."""
     import httpx
 
     headers = {"APCA-API-KEY-ID": config.alpaca_api_key(),
                "APCA-API-SECRET-KEY": config.alpaca_api_secret()}
-    start = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
+    start = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     # sort=desc + limit returns the newest bars; we reverse to chronological below.
     params: dict[str, object] = {"timeframe": timeframe.value, "start": start,
                                  "limit": limit, "sort": "desc"}

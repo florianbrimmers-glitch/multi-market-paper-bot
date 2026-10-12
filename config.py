@@ -109,6 +109,14 @@ def eod_no_entry_min() -> float:
     return _env_float("EOD_NO_ENTRY_MIN", 30)
 
 
+def paused_strategies() -> set[str]:
+    """Strategies that open no new positions (open ones are still managed and exited).
+    Comma-separated; empty = none paused. Default after the 2026-10-12 review: trend following
+    (gap stops, no winner) and momentum breakout (crypto fees exceed its typical gain)."""
+    raw = os.environ.get("PAUSED_STRATEGIES", "trend_following,momentum_breakout")
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
 def atr_stop_mult() -> float:
     """Intended stop distance = this multiple of ATR, before the hard cap."""
     return _env_float("ATR_STOP_MULT", 1.5)

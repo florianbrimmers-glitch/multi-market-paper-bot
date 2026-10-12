@@ -62,3 +62,12 @@ def test_backtest_eod_flat_closes_before_the_session_ends():
     assert flat.trades and all(t.closed for t in flat.trades)
     assert flat.trades[-1].reason_out == "eod flat"
     assert not held.trades[-1].closed  # held overnight
+
+
+def test_screen_runs_offline(monkeypatch):
+    import run_screen
+    from models import Timeframe
+    from tests import fixtures as fx
+    monkeypatch.setattr(run_screen, "fetch_bars", lambda *a, **k: fx.uptrend())
+    line = run_screen.screen("USO", "trend_following", Timeframe.D1, 730)
+    assert line.startswith("USO") and "buy&hold%" in line

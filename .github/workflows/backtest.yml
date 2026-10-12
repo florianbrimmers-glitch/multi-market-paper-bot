@@ -1,0 +1,42 @@
+name: Backtest Screen
+
+# Read-only: replays Alpaca history through a strategy for a list of symbols (see run_screen.py).
+
+on:
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: "mean_reversion | trend_following | momentum_breakout"
+        required: true
+        default: "mean_reversion"
+      timeframe:
+        description: "15Min | 1Hour | 4Hour | 1Day"
+        required: true
+        default: "15Min"
+      days:
+        description: "History length in days"
+        required: true
+        default: "120"
+      symbols:
+        description: "Space-separated symbols"
+        required: true
+        default: "SPY QQQ SAP DB"
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      STRATEGY: ${{ github.event.inputs.strategy }}
+      TIMEFRAME: ${{ github.event.inputs.timeframe }}
+      DAYS: ${{ github.event.inputs.days }}
+      SYMBOLS: ${{ github.event.inputs.symbols }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Screen
+        run: python run_screen.py "$STRATEGY" "$TIMEFRAME" "$DAYS" $SYMBOLS | tee out.txt && { echo "```"; cat out.txt; echo "```"; } >> "$GITHUB_STEP_SUMMARY"

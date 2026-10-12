@@ -105,7 +105,7 @@ def broker_closed_events(state, current: dict, broker=None) -> list[str]:
 
 
 COOLDOWN_BARS = 6  # after a stop-out, wait this many bars of the instrument's timeframe
-_TF_MINUTES = {"15Min": 15, "1Hour": 60, "4Hour": 240}
+_TF_MINUTES = {"15Min": 15, "1Hour": 60, "4Hour": 240, "1Day": 1440}
 
 
 def cooldown_until(symbol: str, now: datetime) -> str:
@@ -113,6 +113,18 @@ def cooldown_until(symbol: str, now: datetime) -> str:
     inst = next((i for i in config.INSTRUMENTS if i.position_symbol == symbol), None)
     minutes = _TF_MINUTES.get(inst.timeframe.value, 60) if inst else 60
     return (now + timedelta(minutes=COOLDOWN_BARS * minutes)).isoformat()
+
+
+def cooldown_symbols(symbol: str) -> list[str]:
+    """The stopped-out symbol plus its correlation-group partners: a stop on QQQ means the move
+    is market-wide, so SPY isn't bought straight into it either (happened 2026-10-08)."""
+    import config
+    inst = next((i for i in config.INSTRUMENTS if i.position_symbol == symbol), None)
+    group = inst.correlation_group if inst else None
+    if not group:
+        return [symbol]
+    return [symbol] + [i.position_symbol for i in config.INSTRUMENTS
+                       if i.correlation_group == group and i.position_symbol != symbol]
 
 
 def loop_once(broker, state, build=None, publisher=publish, fetch=None,
@@ -125,7 +137,8 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     # No immediate re-entry after a stop-out (it re-bought USO in the same tick it was stopped).
     for sym in state.positions:
         if sym not in current and sym not in state.own_exits:
-            state.cooldown[sym] = cooldown_until(sym, now)
+            for s in cooldown_symbols(sym):
+                state.cooldown[s] = cooldown_until(sym, now)
     state.cooldown = {s: u for s, u in state.cooldown.items() if u > now.isoformat()}
     kwargs = {"blocked": set(state.cooldown)}
     if fetch:

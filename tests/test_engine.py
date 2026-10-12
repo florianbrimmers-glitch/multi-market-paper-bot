@@ -213,3 +213,23 @@ def test_correlation_filter_counts_unfilled_entries(log_path, monkeypatch):
     records = {r.symbol: r for r in run_tick(broker, fetch=_fetch(("SPY", "QQQ")), run_id="t")}
     assert records["SPY"].action_taken == "submitted"
     assert records["QQQ"].action_taken.startswith("skipped:correlation filter")
+
+
+def test_default_pause_list_covers_trend_and_momentum(monkeypatch):
+    monkeypatch.delenv("PAUSED_STRATEGIES")
+    assert config.paused_strategies() == {"trend_following", "momentum_breakout"}
+
+
+def test_paused_strategy_opens_nothing_but_still_exits(log_path, monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("PAUSED_STRATEGIES", "trend_following")
+    broker = MockBroker()
+    broker.set_price("USO", 150.0)
+    _held(broker, "GLD", 200.0, 120.0)
+    fetch = lambda inst: (fx.uptrend() if inst.symbol == "USO"
+                          else fx.downtrend() if inst.symbol == "GLD" else fx.flat_series())
+    recs = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
+    assert recs["USO"].action_taken == "skipped:strategy paused"
+    assert "USO" not in broker.get_positions()
+    assert recs["GLD"].action_taken == "exit"
+    assert "GLD" not in broker.get_positions()   # the open position is still closed on its exit signal

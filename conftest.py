@@ -17,3 +17,9 @@ def _midday_clock(monkeypatch):
 
     import engine.trader
     monkeypatch.setattr(engine.trader, "_now", lambda: datetime(2026, 9, 28, 17, 0, tzinfo=timezone.utc))
+
+
+@pytest.fixture(autouse=True)
+def _no_paused_strategies(monkeypatch):
+    """Tests exercise every strategy; the live default pause list is covered by its own tests."""
+    monkeypatch.setenv("PAUSED_STRATEGIES", "")

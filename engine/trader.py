@@ -115,6 +115,7 @@ def run_tick(
     closing_phase = to_close is not None and to_close <= config.eod_no_entry_min()
     flatten_phase = to_close is not None and to_close <= config.eod_flat_min()
     eod_mode = config.eod_flat_mode()
+    paused = config.paused_strategies()
     if not dry:
         ensure_protective_stops(broker, positions, open_orders)
     pending_buys = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.BUY}
@@ -148,6 +149,8 @@ def run_tick(
             elif (signal.action == Action.ENTER_LONG and closing_phase and not crypto
                   and inst.strategy in _EOD_FLAT):
                 rec.action_taken = "skipped:closing phase"
+            elif signal.action == Action.ENTER_LONG and inst.strategy in paused:
+                rec.action_taken = "skipped:strategy paused"
             elif signal.action == Action.ENTER_LONG and sym in blocked:
                 rec.action_taken = "skipped:cooldown after stop-out"
             elif sym in pending_buys:
