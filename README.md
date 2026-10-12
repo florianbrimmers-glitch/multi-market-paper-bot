@@ -28,6 +28,13 @@ Abend-Briefings, die Claude schreibt. Der Bot läuft auf einem kostenlosen
 | Deutsche Bank | `DB` (NYSE) | Mean Reversion | 15 Min |
 | BioNTech | `BNTX` (Nasdaq) | Momentum-Ausbruch | 1 Std |
 
+**Pausierte Strategien (seit 12.10.2026):** Trendfolge und Momentum-Ausbruch eröffnen keine
+neuen Positionen. Trendfolge verlor alle 4 Trades durch Kurslücken über Nacht. Beim
+Momentum-Ausbruch fraßen die Krypto-Gebühren (~110 $ pro Runde) den typischen Gewinn auf. Offene
+Positionen dieser Strategien werden weiter verwaltet und normal verkauft. Gesteuert wird das über
+die Repo-Variable `PAUSED_STRATEGIES` (Standard `trend_following,momentum_breakout`; leer = alle
+aktiv). Vor einer Reaktivierung wird Trendfolge auf Tageskerzen über 1–2 Jahre getestet.
+
 **Deutsche Werte:** Alpaca hat keinen Zugang zu Xetra oder Frankfurt. Die deutschen Werte sind
 deshalb ihre **US-Notierungen**. Sie werden in USD und zu US-Börsenzeiten gehandelt, bilden
 aber dieselben Unternehmen und Indizes ab.
@@ -56,7 +63,9 @@ aber dieselben Unternehmen und Indizes ab.
   die drei Varianten im Backtest.
 - **Sperre nach einem Stop-out:** Wurde eine Position ausgestoppt, kauft der Bot diesen Markt
   6 Kerzen lang nicht neu. Das sind 24 Stunden bei 4-Stunden-Kerzen, 6 Stunden bei
-  1-Stunden-Kerzen und 90 Minuten bei 15-Minuten-Kerzen.
+  1-Stunden-Kerzen und 90 Minuten bei 15-Minuten-Kerzen. Die Sperre gilt auch für den Partner
+  aus derselben Korrelationsgruppe: Nach einem Stop bei QQQ wird auch SPY nicht gekauft, weil
+  der Rückgang dann meist den ganzen Markt betrifft.
 - **Sicherer Verkauf:** Vor einem Verkauf storniert der Bot den Schutz-Stop und wartet, bis
   Alpaca die Stornierung bestätigt hat. Scheitert der Verkauf trotzdem, kommt eine Warnung, der
   Stop wird neu gesetzt und der nächste Check versucht es erneut.
@@ -103,6 +112,7 @@ python -m pytest tests/ -v          # offline, keine Keys nötig
 DRY_RUN=true  python run_trade.py   # ein Check, nur protokollieren (Standard)
 DRY_RUN=false python run_trade.py   # ein Check mit PAPER-Orders
 python run_backtest.py [SPY QQQ ...]
+python run_screen.py mean_reversion 15Min 120 IWM DIA   # Kandidaten testen (auch als Action "Backtest Screen")
 python run_brief.py morning|night
 ```
 

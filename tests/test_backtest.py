@@ -71,3 +71,26 @@ def test_screen_runs_offline(monkeypatch):
     monkeypatch.setattr(run_screen, "fetch_bars", lambda *a, **k: fx.uptrend())
     line = run_screen.screen("USO", "trend_following", Timeframe.D1, 730)
     assert line.startswith("USO") and "buy&hold%" in line
+
+
+def test_fetch_bars_follows_next_page_token(monkeypatch):
+    import httpx
+
+    from data import market_data
+    from models import AssetClass, Timeframe
+    pages = [{"bars": [{"t": "2026-10-02T14:00:00Z", "o": 1, "h": 1, "l": 1, "c": 2}],
+              "next_page_token": "p2"},
+             {"bars": [{"t": "2026-10-01T14:00:00Z", "o": 1, "h": 1, "l": 1, "c": 1}],
+              "next_page_token": None}]
+    seen = []
+    monkeypatch.setenv("ALPACA_API_KEY", "test")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test")
+
+    def handler(request):
+        seen.append(request.url.params.get("page_token"))
+        return httpx.Response(200, json=pages[len(seen) - 1])
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    bars = market_data.fetch_bars("SPY", AssetClass.EQUITY, Timeframe.M15, limit=500)
+    assert [b.close for b in bars] == [1, 2] and seen == [None, "p2"]

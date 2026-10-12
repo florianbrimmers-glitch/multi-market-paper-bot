@@ -34,7 +34,7 @@ def screen(symbol: str, strategy: str, timeframe: Timeframe, days: int) -> str:
     stops = sum(t.reason_out == "hard stop hit" for t in closed)
     hold = (bars[-1].close / bars[0].close - 1) * 100
     return (f"{res.summary()} stops={stops:<3} pnl$ 1st/2nd half={first:8.0f}/{second:8.0f} "
-            f"buy&hold%={hold:6.1f} bars={len(bars)}")
+            f"buy&hold%={hold:6.1f} bars={len(bars)} from={bars[0].timestamp.date()}")
 
 
 def main(argv: list[str]) -> None:

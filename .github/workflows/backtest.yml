@@ -39,4 +39,4 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: Screen
-        run: python run_screen.py "$STRATEGY" "$TIMEFRAME" "$DAYS" $SYMBOLS | tee out.txt && { echo "```"; cat out.txt; echo "```"; } >> "$GITHUB_STEP_SUMMARY"
+        run: python run_screen.py "$STRATEGY" "$TIMEFRAME" "$DAYS" $SYMBOLS | tee out.txt && { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

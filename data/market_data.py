@@ -44,14 +44,23 @@ def fetch_bars(symbol: str, asset_class: AssetClass, timeframe: Timeframe, limit
     start = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     # sort=desc + limit returns the newest bars; we reverse to chronological below.
     params: dict[str, object] = {"timeframe": timeframe.value, "start": start,
-                                 "limit": limit, "sort": "desc"}
+                                 "limit": min(limit, 10_000), "sort": "desc"}
+    raw: list[dict] = []
     with httpx.Client(base_url=config.alpaca_data_url(), headers=headers, timeout=30.0) as client:
-        if asset_class == AssetClass.CRYPTO:
-            r = client.get("/v1beta3/crypto/us/bars", params={**params, "symbols": symbol})
-            r.raise_for_status()
-            raw = (r.json().get("bars") or {}).get(symbol, [])
-        else:
-            r = client.get(f"/v2/stocks/{symbol}/bars", params={**params, "feed": "iex"})
-            r.raise_for_status()
-            raw = r.json().get("bars") or []
-    return list(reversed(_parse_bars(raw)))
+        # Alpaca pages long ranges (next_page_token) even when `limit` is larger than one page.
+        while len(raw) < limit:
+            if asset_class == AssetClass.CRYPTO:
+                r = client.get("/v1beta3/crypto/us/bars", params={**params, "symbols": symbol})
+                r.raise_for_status()
+                body = r.json()
+                raw += (body.get("bars") or {}).get(symbol, [])
+            else:
+                r = client.get(f"/v2/stocks/{symbol}/bars", params={**params, "feed": "iex"})
+                r.raise_for_status()
+                body = r.json()
+                raw += body.get("bars") or []
+            token = body.get("next_page_token")
+            if not token:
+                break
+            params["page_token"] = token
+    return list(reversed(_parse_bars(raw[:limit])))
