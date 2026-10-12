@@ -41,7 +41,7 @@ Abend-Briefings, die Claude schreibt. Der Bot läuft auf einem kostenlosen
 neuen Positionen. Trendfolge verlor alle 4 Trades durch Kurslücken über Nacht. Beim
 Momentum-Ausbruch fraßen die Krypto-Gebühren (~110 $ pro Runde) den typischen Gewinn auf. Offene
 Positionen dieser Strategien werden weiter verwaltet und normal verkauft. Gesteuert wird das über
-die Repo-Variable `PAUSED_STRATEGIES` (Standard `trend_following,momentum_breakout`; leer = alle
+die Einstellung `PAUSED_STRATEGIES` in `config.py` (Standard `trend_following,momentum_breakout`; leer = alle
 aktiv). Vor einer Reaktivierung wird Trendfolge auf Tageskerzen über 1–2 Jahre getestet.
 
 **Erweiterung Mean Reversion (12.10.2026):** Vor der Aufnahme lief jeder Kandidat durch
@@ -55,7 +55,7 @@ Achtung: Wer aus vielen Kandidaten die besten eines Zeitraums auswählt, erwisch
 Die Backtest-Zahlen sind deshalb eine Obergrenze, keine Prognose.
 
 **Pausierte Einzelwerte:** `DB` kauft seit 12.10.2026 nichts Neues (−2,1 % im Screen, 41 von 72
-Trades ausgestoppt). Gesteuert über die Repo-Variable `PAUSED_SYMBOLS` (Standard `DB`).
+Trades ausgestoppt). Gesteuert über `PAUSED_SYMBOLS` in `config.py` (Standard `DB`).
 
 **Deutsche Werte:** Alpaca hat keinen Zugang zu Xetra oder Frankfurt. Die deutschen Werte sind
 deshalb ihre **US-Notierungen**. Sie werden in USD und zu US-Börsenzeiten gehandelt, bilden
