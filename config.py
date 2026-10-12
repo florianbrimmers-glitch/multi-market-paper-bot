@@ -130,8 +130,9 @@ def atr_stop_mult() -> float:
 
 
 def max_position_pct() -> float:
-    """No single position may exceed this fraction of equity in notional (default 25%)."""
-    return _env_float("MAX_POSITION_PCT", 0.25)
+    """No single position may exceed this fraction of equity in notional (default 50%). At 25% the cap,
+    not the 0.5% risk budget, sized nearly every trade: QQQ 33 @ 747.65 risked ~0.12% of equity."""
+    return _env_float("MAX_POSITION_PCT", 0.50)
 
 
 # --- Strategy parameters -----------------------------------------------------
@@ -199,12 +200,20 @@ INSTRUMENTS: list[Instrument] = [
                strategy="mean_reversion", timeframe=Timeframe.M15),
     # Second screen (2026-10-12, split-adjusted bars): same rule, positive in both halves.
     Instrument(symbol="EEM", market="Emerging Markets (iShares ETF)", asset_class=AssetClass.EQUITY,
-               strategy="mean_reversion", timeframe=Timeframe.M15),
+               strategy="mean_reversion", timeframe=Timeframe.M15, correlation_group="emerging"),
     Instrument(symbol="XLI", market="US Industrials Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
                strategy="mean_reversion", timeframe=Timeframe.M15),
     Instrument(symbol="XLP", market="US Consumer Staples Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
                strategy="mean_reversion", timeframe=Timeframe.M15),
     Instrument(symbol="AVGO", market="Broadcom (Nasdaq)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    # Third batch (2026-10-12): smaller but positive in both halves of the 180-day screen. FXI is
+    # a large part of EEM, so the two share a group.
+    Instrument(symbol="JPM", market="JPMorgan Chase (NYSE)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    Instrument(symbol="FXI", market="China Large-Cap (iShares ETF)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15, correlation_group="emerging"),
+    Instrument(symbol="XLU", market="US Utilities Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
                strategy="mean_reversion", timeframe=Timeframe.M15),
     Instrument(symbol="BNTX", market="BioNTech (Nasdaq ADR)", asset_class=AssetClass.EQUITY,
                strategy="momentum_breakout", timeframe=Timeframe.H1),

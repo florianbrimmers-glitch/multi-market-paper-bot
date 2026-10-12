@@ -32,6 +32,9 @@ Abend-Briefings, die Claude schreibt. Der Bot läuft auf einem kostenlosen
 | US-Industrie | `XLI` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
 | US-Basiskonsum | `XLP` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
 | Broadcom | `AVGO` (Nasdaq) | Mean Reversion | 15 Min |
+| JPMorgan | `JPM` (NYSE) | Mean Reversion | 15 Min |
+| China | `FXI` (iShares ETF) | Mean Reversion | 15 Min |
+| US-Versorger | `XLU` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
 | BioNTech | `BNTX` (Nasdaq) | Momentum-Ausbruch | 1 Std |
 
 **Pausierte Strategien (seit 12.10.2026):** Trendfolge und Momentum-Ausbruch eröffnen keine
@@ -70,9 +73,9 @@ aber dieselben Unternehmen und Indizes ab.
   - Bei jedem Check gibt eine Sicherheitsprüfung jeder offenen Position ohne Stop sofort einen.
 - **Positionsgröße nach Volatilität:** Jeder Trade riskiert 0,5 % des Kontos
   (`RISK_PER_TRADE_PCT`). Der Stop-Abstand ergibt sich aus der ATR. Eine Position ist zusätzlich
-  auf 25 % des Kontos (`MAX_POSITION_PCT`) und die verfügbare Kaufkraft begrenzt.
+  auf 50 % des Kontos (`MAX_POSITION_PCT`, bis 13.10.2026: 25 %) und die verfügbare Kaufkraft begrenzt.
 - **Korrelationsfilter:** Aus der Gruppe SPY, QQQ und XLK hält der Bot höchstens eine Position, aus
-  EWG und DAX ebenfalls.
+  EWG und DAX ebenfalls, aus EEM und FXI auch.
 - **Eröffnungsphase:** In den ersten 30 Minuten nach der US-Eröffnung (`OPENING_DELAY_MIN`)
   kauft Mean Reversion nichts. Die 15-Minuten-Kerzen stammen dann noch größtenteils vom Vortag,
   und die Kurslücke über Nacht würde sonst als Kaufsignal gelten. Verkäufe laufen normal weiter.
