@@ -117,6 +117,13 @@ def paused_strategies() -> set[str]:
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
+def paused_symbols() -> set[str]:
+    """Single instruments that open no new positions (like paused_strategies). Default: DB, which
+    lost 2.1 % in the 180-day mean-reversion screen (41 of 72 trades stopped out)."""
+    raw = os.environ.get("PAUSED_SYMBOLS", "DB")
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
 def atr_stop_mult() -> float:
     """Intended stop distance = this multiple of ATR, before the hard cap."""
     return _env_float("ATR_STOP_MULT", 1.5)

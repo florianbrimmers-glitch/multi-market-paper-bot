@@ -235,3 +235,14 @@ def test_paused_strategy_opens_nothing_but_still_exits(log_path, monkeypatch):
     assert "USO" not in broker.get_positions()
     assert recs["GLD"].action_taken == "exit"
     assert "GLD" not in broker.get_positions()   # the open position is still closed on its exit signal
+
+
+def test_paused_symbol_opens_nothing(log_path, monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.delenv("PAUSED_SYMBOLS")
+    assert config.paused_symbols() == {"DB"}
+    broker = MockBroker()
+    broker.set_price("DB", 90.0)
+    recs = {r.symbol: r for r in run_tick(broker, fetch=_fetch(("DB",)), run_id="t")}
+    assert recs["DB"].action_taken == "skipped:symbol paused"
+    assert "DB" not in broker.get_positions()

@@ -23,3 +23,4 @@ def _midday_clock(monkeypatch):
 def _no_paused_strategies(monkeypatch):
     """Tests exercise every strategy; the live default pause list is covered by its own tests."""
     monkeypatch.setenv("PAUSED_STRATEGIES", "")
+    monkeypatch.setenv("PAUSED_SYMBOLS", "")

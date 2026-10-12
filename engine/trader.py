@@ -116,6 +116,7 @@ def run_tick(
     flatten_phase = to_close is not None and to_close <= config.eod_flat_min()
     eod_mode = config.eod_flat_mode()
     paused = config.paused_strategies()
+    paused_syms = config.paused_symbols()
     if not dry:
         ensure_protective_stops(broker, positions, open_orders)
     pending_buys = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.BUY}
@@ -151,6 +152,8 @@ def run_tick(
                 rec.action_taken = "skipped:closing phase"
             elif signal.action == Action.ENTER_LONG and inst.strategy in paused:
                 rec.action_taken = "skipped:strategy paused"
+            elif signal.action == Action.ENTER_LONG and inst.symbol in paused_syms:
+                rec.action_taken = "skipped:symbol paused"
             elif signal.action == Action.ENTER_LONG and sym in blocked:
                 rec.action_taken = "skipped:cooldown after stop-out"
             elif sym in pending_buys:

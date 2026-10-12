@@ -43,6 +43,9 @@ und in beiden Hälften des Zeitraums Gewinn machte: XLK (+5,1 %), XLE (+1,9 %) u
 Nicht aufgenommen wurden IWM, DIA, XLF, XLV, SMH, GLD und TLT (Verlust oder nur in einer Hälfte
 Gewinn).
 
+**Pausierte Einzelwerte:** `DB` kauft seit 12.10.2026 nichts Neues (−2,1 % im Screen, 41 von 72
+Trades ausgestoppt). Gesteuert über die Repo-Variable `PAUSED_SYMBOLS` (Standard `DB`).
+
 **Deutsche Werte:** Alpaca hat keinen Zugang zu Xetra oder Frankfurt. Die deutschen Werte sind
 deshalb ihre **US-Notierungen**. Sie werden in USD und zu US-Börsenzeiten gehandelt, bilden
 aber dieselben Unternehmen und Indizes ab.
