@@ -88,6 +88,7 @@ def test_fetch_bars_follows_next_page_token(monkeypatch):
 
     def handler(request):
         seen.append(request.url.params.get("page_token"))
+        assert request.url.params.get("adjustment") == "all"
         return httpx.Response(200, json=pages[len(seen) - 1])
 
     real = httpx.Client

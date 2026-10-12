@@ -55,7 +55,8 @@ def fetch_bars(symbol: str, asset_class: AssetClass, timeframe: Timeframe, limit
                 body = r.json()
                 raw += (body.get("bars") or {}).get(symbol, [])
             else:
-                r = client.get(f"/v2/stocks/{symbol}/bars", params={**params, "feed": "iex"})
+                # Split/dividend-adjusted: a raw split looks like a crash to every indicator.
+                r = client.get(f"/v2/stocks/{symbol}/bars", params={**params, "feed": "iex", "adjustment": "all"})
                 r.raise_for_status()
                 body = r.json()
                 raw += body.get("bars") or []
