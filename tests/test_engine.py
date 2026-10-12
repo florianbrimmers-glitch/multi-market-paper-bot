@@ -95,7 +95,9 @@ def test_german_index_etfs_share_a_correlation_group(log_path, monkeypatch):
     broker = MockBroker()
     broker.set_price("EWG", 100.0)
     broker.set_price("DAX", 100.0)
-    fetch = lambda inst: fx.uptrend() if inst.symbol in ("EWG", "DAX") else fx.flat_series()
+    fetch = lambda inst: (fx.flat_then_drop() if inst.symbol == "EWG" else fx.uptrend() if inst.symbol == "DAX"
+                          else fx.flat_series())
+    broker.set_price("EWG", 90.0)
     records = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
     assert records["EWG"].action_taken == "submitted"
     assert records["DAX"].action_taken.startswith("skipped:correlation filter")

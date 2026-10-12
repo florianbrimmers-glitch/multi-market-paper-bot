@@ -244,6 +244,6 @@ def test_result_text_without_confirmed_fill():
 
 def test_stop_out_also_cools_down_the_correlation_partner():
     from run_loop import cooldown_symbols
-    assert cooldown_symbols("QQQ") == ["QQQ", "SPY"]
+    assert cooldown_symbols("QQQ") == ["QQQ", "SPY", "XLK"]
     assert cooldown_symbols("DAX") == ["DAX", "EWG"]
     assert cooldown_symbols("SAP") == ["SAP"]

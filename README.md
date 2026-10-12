@@ -22,10 +22,12 @@ Abend-Briefings, die Claude schreibt. Der Bot läuft auf einem kostenlosen
 | Bitcoin | `BTC/USD` | Momentum-Ausbruch: Kauf beim Bruch des 20-Kerzen-Hochs mit bestätigendem Volumen | 1 Std |
 | Gold | `GLD` | Trendfolge: schneller über langsamem gleitendem Durchschnitt | 4 Std |
 | Öl | `USO` | Trendfolge | 4 Std |
-| Deutschland | `EWG` (iShares MSCI Germany ETF) | Trendfolge | 4 Std |
+| Deutschland | `EWG` (iShares MSCI Germany ETF) | Mean Reversion (bis 12.10. Trendfolge) | 15 Min |
 | DAX | `DAX` (Global X DAX Germany ETF) | Trendfolge | 4 Std |
 | SAP | `SAP` (NYSE) | Mean Reversion | 15 Min |
 | Deutsche Bank | `DB` (NYSE) | Mean Reversion | 15 Min |
+| US-Technologie | `XLK` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
+| US-Energie | `XLE` (SPDR Sektor-ETF) | Mean Reversion | 15 Min |
 | BioNTech | `BNTX` (Nasdaq) | Momentum-Ausbruch | 1 Std |
 
 **Pausierte Strategien (seit 12.10.2026):** Trendfolge und Momentum-Ausbruch eröffnen keine
@@ -34,6 +36,12 @@ Momentum-Ausbruch fraßen die Krypto-Gebühren (~110 $ pro Runde) den typischen 
 Positionen dieser Strategien werden weiter verwaltet und normal verkauft. Gesteuert wird das über
 die Repo-Variable `PAUSED_STRATEGIES` (Standard `trend_following,momentum_breakout`; leer = alle
 aktiv). Vor einer Reaktivierung wird Trendfolge auf Tageskerzen über 1–2 Jahre getestet.
+
+**Erweiterung Mean Reversion (12.10.2026):** Vor der Aufnahme lief jeder Kandidat durch
+`Backtest Screen` (180 Tage, 15-Min-Kerzen, Live-Regeln). Aufgenommen wurde nur, wer im Plus lag
+und in beiden Hälften des Zeitraums Gewinn machte: XLK (+5,1 %), XLE (+1,9 %) und EWG (+2,0 %).
+Nicht aufgenommen wurden IWM, DIA, XLF, XLV, SMH, GLD und TLT (Verlust oder nur in einer Hälfte
+Gewinn).
 
 **Deutsche Werte:** Alpaca hat keinen Zugang zu Xetra oder Frankfurt. Die deutschen Werte sind
 deshalb ihre **US-Notierungen**. Sie werden in USD und zu US-Börsenzeiten gehandelt, bilden
@@ -52,7 +60,8 @@ aber dieselben Unternehmen und Indizes ab.
 - **Positionsgröße nach Volatilität:** Jeder Trade riskiert 0,5 % des Kontos
   (`RISK_PER_TRADE_PCT`). Der Stop-Abstand ergibt sich aus der ATR. Eine Position ist zusätzlich
   auf 25 % des Kontos (`MAX_POSITION_PCT`) und die verfügbare Kaufkraft begrenzt.
-- **Korrelationsfilter:** SPY und QQQ werden nie gleichzeitig gekauft, EWG und DAX ebenfalls nicht.
+- **Korrelationsfilter:** Aus der Gruppe SPY, QQQ und XLK hält der Bot höchstens eine Position, aus
+  EWG und DAX ebenfalls.
 - **Eröffnungsphase:** In den ersten 30 Minuten nach der US-Eröffnung (`OPENING_DELAY_MIN`)
   kauft Mean Reversion nichts. Die 15-Minuten-Kerzen stammen dann noch größtenteils vom Vortag,
   und die Kurslücke über Nacht würde sonst als Kaufsignal gelten. Verkäufe laufen normal weiter.

@@ -174,13 +174,21 @@ INSTRUMENTS: list[Instrument] = [
     Instrument(symbol="USO", market="Oil", asset_class=AssetClass.EQUITY,
                strategy="trend_following", timeframe=Timeframe.H4),
     # German exposure. Alpaca has no Xetra access, so these are the US listings (USD, US hours).
+    # EWG moved from trend following to mean reversion after the 2026-10-12 screen (180 days of
+    # 15-min bars: +2.0 %, both halves positive; trend on daily bars lost over two years).
     Instrument(symbol="EWG", market="Germany (iShares MSCI Germany ETF)", asset_class=AssetClass.EQUITY,
-               strategy="trend_following", timeframe=Timeframe.H4, correlation_group="germany_index"),
+               strategy="mean_reversion", timeframe=Timeframe.M15, correlation_group="germany_index"),
     Instrument(symbol="DAX", market="DAX (Global X DAX Germany ETF)", asset_class=AssetClass.EQUITY,
                strategy="trend_following", timeframe=Timeframe.H4, correlation_group="germany_index"),
     Instrument(symbol="SAP", market="SAP (NYSE ADR)", asset_class=AssetClass.EQUITY,
                strategy="mean_reversion", timeframe=Timeframe.M15),
     Instrument(symbol="DB", market="Deutsche Bank (NYSE)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15),
+    # Added 2026-10-12: mean reversion was positive in both halves of the 180-day screen. XLK moves
+    # with QQQ, so it shares the index group (never held together, joint cooldown).
+    Instrument(symbol="XLK", market="US Tech Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
+               strategy="mean_reversion", timeframe=Timeframe.M15, correlation_group="us_equity_index"),
+    Instrument(symbol="XLE", market="US Energy Sector (SPDR ETF)", asset_class=AssetClass.EQUITY,
                strategy="mean_reversion", timeframe=Timeframe.M15),
     Instrument(symbol="BNTX", market="BioNTech (Nasdaq ADR)", asset_class=AssetClass.EQUITY,
                strategy="momentum_breakout", timeframe=Timeframe.H1),
