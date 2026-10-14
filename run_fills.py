@@ -8,7 +8,7 @@ Entry = the most recent filled buy of the same symbol before the sell.
 from __future__ import annotations
 
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import i18n
@@ -19,7 +19,7 @@ NY = ZoneInfo("America/New_York")
 BERLIN = ZoneInfo("Europe/Berlin")
 
 
-def account_snapshot(broker) -> list[str]:
+def account_snapshot(broker, day: date) -> list[str]:
     """Current equity, open positions and the last days' closing equity (all read-only)."""
     acct = broker.get_account()
     out = [f"Konto jetzt: {i18n.usd(acct.equity)} (Cash {i18n.usd(acct.cash)}, "
@@ -38,6 +38,23 @@ def account_snapshot(broker) -> list[str]:
     a.raise_for_status()
     other = [x for x in a.json() if x.get("activity_type") != "FILL"]
     out.append("Sonstige Buchungen (ohne Käufe/Verkäufe):" if other else "Sonstige Buchungen: keine")
+    # Raw activity stream since the previous evening, fills included, to reconcile cash.
+    since = f"{(day - timedelta(days=1)).isoformat()}T00:00:00Z"
+    r = broker._client.get("/v2/account/activities",
+                           params={"after": since, "direction": "asc", "page_size": 100})
+    r.raise_for_status()
+    flow = 0.0
+    out.append(f"Alle Buchungen seit {since}:")
+    for x in r.json():
+        if x.get("activity_type") == "FILL":
+            amt = float(x["qty"]) * float(x["price"]) * (-1 if x["side"] == "buy" else 1)
+            out.append(f"- {x['transaction_time'][:19]} FILL {x['side']} {x['symbol']} {x['qty']} @ {x['price']}"
+                       f" ({x.get('type', '')}) cash {amt:+.2f}")
+        else:
+            amt = float(x.get("net_amount") or 0)
+            out.append(f"- {x.get('date')} {x.get('activity_type')} {amt:+.2f} {x.get('description') or ''}")
+        flow += amt
+    out.append(f"Summe Cash-Fluss seit {since}: {flow:+.2f}")
     for x in other[:30]:
         out.append(f"- {x.get('date') or x.get('transaction_time', '')[:16]} {x.get('activity_type')} "
                    f"{x.get('symbol') or ''} {x.get('net_amount') or x.get('qty') or ''} "
@@ -47,7 +64,7 @@ def account_snapshot(broker) -> list[str]:
 
 def main(day: date) -> None:
     with AlpacaBroker() as broker:
-        print("\n".join(account_snapshot(broker)) + "\n")
+        print("\n".join(account_snapshot(broker, day)) + "\n")
         r = broker._client.get("/v2/orders", params={"status": "closed", "direction": "asc", "limit": 500,
                                                      "after": f"{day.isoformat()}T00:00:00Z"})
         r.raise_for_status()
