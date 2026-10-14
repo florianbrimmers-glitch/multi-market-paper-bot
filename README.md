@@ -74,8 +74,10 @@ aber dieselben Unternehmen und Indizes ab.
 - **Positionsgröße nach Volatilität:** Jeder Trade riskiert 0,5 % des Kontos
   (`RISK_PER_TRADE_PCT`). Der Stop-Abstand ergibt sich aus der ATR. Eine Position ist zusätzlich
   auf 50 % des Kontos (`MAX_POSITION_PCT`, bis 13.10.2026: 25 %) und die verfügbare Kaufkraft begrenzt.
-- **Korrelationsfilter:** Aus der Gruppe SPY, QQQ und XLK hält der Bot höchstens eine Position, aus
-  EWG und DAX ebenfalls, aus EEM und FXI auch.
+- **Verwandte Märkte (Korrelationsgruppen):** SPY/QQQ/XLK, EWG/DAX und EEM/FXI bewegen sich
+  weitgehend gemeinsam. Ist aus einer Gruppe schon ein Markt gekauft, wird ein weiterer mit
+  **halber Größe** gekauft statt übersprungen (seit 14.10.2026). So laufen mehr Trades, ohne dass
+  dieselbe Marktbewegung doppelt zählt.
 - **Eröffnungsphase:** In den ersten 30 Minuten nach der US-Eröffnung (`OPENING_DELAY_MIN`)
   kauft Mean Reversion nichts. Die 15-Minuten-Kerzen stammen dann noch größtenteils vom Vortag,
   und die Kurslücke über Nacht würde sonst als Kaufsignal gelten. Verkäufe laufen normal weiter.
@@ -86,9 +88,9 @@ aber dieselben Unternehmen und Indizes ab.
   die drei Varianten im Backtest.
 - **Sperre nach einem Stop-out:** Wurde eine Position ausgestoppt, kauft der Bot diesen Markt
   6 Kerzen lang nicht neu. Das sind 24 Stunden bei 4-Stunden-Kerzen, 6 Stunden bei
-  1-Stunden-Kerzen und 90 Minuten bei 15-Minuten-Kerzen. Die Sperre gilt auch für den Partner
-  aus derselben Korrelationsgruppe: Nach einem Stop bei QQQ wird auch SPY nicht gekauft, weil
-  der Rückgang dann meist den ganzen Markt betrifft.
+  1-Stunden-Kerzen und 90 Minuten bei 15-Minuten-Kerzen. Die Partner aus derselben
+  Korrelationsgruppe dürfen in dieser Zeit kaufen, aber nur mit halber Größe: Nach einem Stop bei
+  QQQ betrifft der Rückgang meist den ganzen Markt.
 - **Sicherer Verkauf:** Vor einem Verkauf storniert der Bot den Schutz-Stop und wartet, bis
   Alpaca die Stornierung bestätigt hat. Scheitert der Verkauf trotzdem, kommt eine Warnung, der
   Stop wird neu gesetzt und der nächste Check versucht es erneut.

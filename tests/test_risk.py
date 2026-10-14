@@ -40,12 +40,12 @@ def test_risk_budget_binds_when_stop_is_wide():
     assert dec.plan.risk_amount <= 500.0
 
 
-def test_correlation_filter_blocks_second_index_long():
+def test_second_index_long_is_bought_at_half_size():
     positions = {"SPY": Position(symbol="SPY", qty=10, avg_entry_price=100.0)}
     dec = size_entry("QQQ", 100.0, fx.flat_series(), _account(), positions,
                      correlation_group="us_equity_index", group_of=GROUPS)
-    assert not dec.approved
-    assert "correlation filter" in dec.reason
+    assert dec.approved and dec.plan.qty == 250   # half of the 500 a lone index long gets
+    assert "half size: SPY already long" in dec.reason
 
 
 def test_uncorrelated_instrument_is_allowed():

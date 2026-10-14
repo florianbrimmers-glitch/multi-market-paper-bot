@@ -97,11 +97,13 @@ def run_tick(
     run_id: str | None = None,
     price_of: Callable[[Instrument], float | None] | None = None,
     blocked: set[str] | frozenset[str] = frozenset(),
+    halved: set[str] | frozenset[str] = frozenset(),
 ) -> list[TradeRecord]:
     """Evaluate every instrument once. `fetch` / `price_of` are injectable for tests.
 
     price_of: live price used for sizing and the stop (defaults to the signal's bar close).
     blocked:  position symbols in a post-stop-out cooldown — no new entries for them.
+    halved:   group partners of a stopped-out symbol — entries allowed, at half size.
     """
     run_id = run_id or uuid.uuid4().hex[:12]
     dry = config.dry_run()
@@ -177,7 +179,7 @@ def run_tick(
                     symbol=sym, entry_price=(price_of(inst) if price_of else None) or signal.ref_price,
                     bars=bars, account=account,
                     positions=held, correlation_group=inst.correlation_group, group_of=_GROUP_OF,
-                    allow_fractional=crypto,
+                    allow_fractional=crypto, size_factor=0.5 if sym in halved else 1.0,
                 )
                 rec.plan = decision.plan
                 if not decision.approved:

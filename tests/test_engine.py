@@ -43,14 +43,15 @@ def test_live_paper_submits_entry_and_protective_stop(log_path, monkeypatch):
     assert stops[0].stop_price == spy.plan.stop_price
 
 
-def test_correlation_filter_applies_within_one_tick(log_path, monkeypatch):
+def test_correlated_second_long_gets_half_size_within_one_tick(log_path, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     broker = MockBroker()
     broker.set_price("SPY", 90.0)
     broker.set_price("QQQ", 90.0)
     records = {r.symbol: r for r in run_tick(broker, fetch=_fetch(("SPY", "QQQ")), run_id="t")}
-    assert records["SPY"].action_taken == "submitted"
-    assert records["QQQ"].action_taken.startswith("skipped:correlation filter")
+    assert records["SPY"].action_taken == records["QQQ"].action_taken == "submitted"
+    assert records["QQQ"].plan.qty == records["SPY"].plan.qty // 2
+    assert "half size: SPY already long" in records["QQQ"].plan.reason
 
 
 def test_one_failing_instrument_does_not_abort_tick(log_path):
@@ -99,8 +100,8 @@ def test_german_index_etfs_share_a_correlation_group(log_path, monkeypatch):
                           else fx.flat_series())
     broker.set_price("EWG", 90.0)
     records = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
-    assert records["EWG"].action_taken == "submitted"
-    assert records["DAX"].action_taken.startswith("skipped:correlation filter")
+    assert records["EWG"].action_taken == records["DAX"].action_taken == "submitted"
+    assert "half size: EWG already long" in records["DAX"].plan.reason
 
 
 def test_entry_and_stop_use_live_price_not_stale_bar_close(log_path, monkeypatch):
@@ -214,7 +215,7 @@ def test_correlation_filter_counts_unfilled_entries(log_path, monkeypatch):
     broker.set_price("QQQ", 90.0)
     records = {r.symbol: r for r in run_tick(broker, fetch=_fetch(("SPY", "QQQ")), run_id="t")}
     assert records["SPY"].action_taken == "submitted"
-    assert records["QQQ"].action_taken.startswith("skipped:correlation filter")
+    assert "half size: SPY already long" in records["QQQ"].plan.reason
 
 
 def test_default_pause_list_covers_trend_and_momentum(monkeypatch):
@@ -246,3 +247,14 @@ def test_paused_symbol_opens_nothing(log_path, monkeypatch):
     recs = {r.symbol: r for r in run_tick(broker, fetch=_fetch(("DB",)), run_id="t")}
     assert recs["DB"].action_taken == "skipped:symbol paused"
     assert "DB" not in broker.get_positions()
+
+
+def test_partner_of_a_stopped_symbol_buys_at_half_size(log_path, monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    broker = MockBroker()
+    broker.set_price("SPY", 90.0)
+    full = next(r for r in run_tick(MockBroker(), fetch=_fetch(), run_id="a") if r.symbol == "SPY")
+    broker.set_price("SPY", 90.0)
+    rec = next(r for r in run_tick(broker, fetch=_fetch(), run_id="t", halved={"SPY"}) if r.symbol == "SPY")
+    assert rec.action_taken == "submitted"
+    assert rec.plan.qty == pytest.approx(full.plan.qty / 2, abs=1)

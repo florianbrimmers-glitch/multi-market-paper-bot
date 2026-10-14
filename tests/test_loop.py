@@ -242,8 +242,27 @@ def test_result_text_without_confirmed_fill():
     assert "unbekannt" in result_text(100.0, None)
 
 
-def test_stop_out_also_cools_down_the_correlation_partner():
+def test_stop_out_lists_the_correlation_partners():
     from run_loop import cooldown_symbols
     assert cooldown_symbols("QQQ") == ["QQQ", "SPY", "XLK"]
     assert cooldown_symbols("DAX") == ["DAX", "EWG"]
     assert cooldown_symbols("SAP") == ["SAP"]
+
+
+def test_after_a_qqq_stop_spy_still_buys_at_half_size(monkeypatch):
+    from models import Order, Side
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("QQQ", 100.0)
+    b.submit_order(Order(symbol="QQQ", side=Side.BUY, qty=10, stop_loss=99.0))
+    state = BriefState(morning="2026-10-13", positions={"QQQ": [10, 100.0]})
+    b.trigger_stops("QQQ", bar_low=98.0)
+    b.set_price("SPY", 90.0)
+    fetch = lambda inst: fx.flat_then_drop() if inst.symbol in ("SPY", "QQQ") else fx.flat_series()
+    recs, _ = loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
+                        fetch=fetch, notify=lambda body: None)
+    by = {r.symbol: r for r in recs}
+    assert by["QQQ"].action_taken == "skipped:cooldown after stop-out"
+    assert by["SPY"].action_taken == "submitted" and "half size" in by["SPY"].plan.reason
+    assert set(state.cooldown) == {"QQQ"}

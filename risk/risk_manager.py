@@ -4,7 +4,8 @@
    MAX_STOP_PCT (1%) from entry.
 2. qty = (equity * RISK_PER_TRADE_PCT) / stop distance, capped at MAX_POSITION_PCT of equity
    in notional and by available buying power.
-3. Two instruments in the same correlation group (SPY & QQQ) can't both be long.
+3. A second long in the same correlation group (e.g. QQQ while SPY is held) is bought at half
+   size instead of being skipped: more trades running, without doubling one market move.
 """
 from __future__ import annotations
 
@@ -44,6 +45,7 @@ def size_entry(
     correlation_group: str | None = None,
     group_of: dict[str, str | None] | None = None,
     allow_fractional: bool = False,
+    size_factor: float = 1.0,
 ) -> RiskDecision:
     """Turn a raw ENTER_LONG signal into a risk-approved TradePlan, or reject it."""
     group_of = group_of or {}
@@ -51,18 +53,23 @@ def size_entry(
     if symbol in positions and positions[symbol].is_long:
         return RiskDecision(None, "already long")
 
+    notes = []
+    if size_factor < 1.0:
+        notes.append("half size: group partner recently stopped out")
     if correlation_group:
-        for held, pos in positions.items():
-            if held != symbol and pos.is_long and group_of.get(held) == correlation_group:
-                return RiskDecision(None, f"correlation filter: {held} already long ({correlation_group})")
+        partners = [h for h, pos in positions.items()
+                    if h != symbol and pos.is_long and group_of.get(h) == correlation_group]
+        if partners:
+            size_factor = min(size_factor, 0.5)
+            notes.append(f"half size: {', '.join(sorted(partners))} already long ({correlation_group})")
 
     if entry_price <= 0:
         return RiskDecision(None, "invalid entry price")
 
     dist = stop_distance(entry_price, bars)
     qty = account.equity * config.risk_per_trade_pct() / dist
-    qty = min(qty, account.equity * config.max_position_pct() / entry_price,
-              account.buying_power / entry_price)
+    qty = size_factor * min(qty, account.equity * config.max_position_pct() / entry_price)
+    qty = min(qty, account.buying_power / entry_price)
     if not allow_fractional:
         qty = math.floor(qty)
     if qty <= 0:
@@ -73,7 +80,7 @@ def size_entry(
             symbol=symbol, side=Side.BUY, qty=qty, entry_price=entry_price,
             stop_price=round(entry_price - dist, 2), risk_amount=qty * dist,
             reason=f"risk {config.risk_per_trade_pct() * 100:.2f}% of equity, "
-                   f"stop {dist / entry_price * 100:.2f}% away",
+                   f"stop {dist / entry_price * 100:.2f}% away" + "".join(f"; {n}" for n in notes),
         ),
-        "approved",
+        "; ".join(notes) or "approved",
     )

@@ -76,7 +76,9 @@ def trade_events(records, results: dict[str, str] | None = None) -> list[str]:
                        f"Check (der Schutz-Stop wird solange neu gesetzt)")
         elif r.action_taken == "submitted" and r.plan:
             out.append(f"- 🟢 **{r.symbol}** gekauft: {i18n.qty(r.plan.qty)} Stück zu ca. {i18n.usd(r.plan.entry_price)}, "
-                       f"Stop {i18n.usd(r.plan.stop_price)} ({strat}: {reason})")
+                       f"Stop {i18n.usd(r.plan.stop_price)} ({strat}: {reason})"
+                       + (" — **halbe Größe** (verwandter Markt offen oder kürzlich ausgestoppt)"
+                          if "half size" in r.plan.reason else ""))
         elif r.action_taken == "rejected":
             out.append(f"- ⚠️ **{r.symbol}** Kauforder vom Broker abgelehnt ({strat}: {reason})")
         elif r.action_taken == "exit":
@@ -117,7 +119,7 @@ def cooldown_until(symbol: str, now: datetime) -> str:
 
 def cooldown_symbols(symbol: str) -> list[str]:
     """The stopped-out symbol plus its correlation-group partners: a stop on QQQ means the move
-    is market-wide, so SPY isn't bought straight into it either (happened 2026-10-08)."""
+    is market-wide (2026-10-08). The symbol itself is blocked; partners only buy at half size."""
     import config
     inst = next((i for i in config.INSTRUMENTS if i.position_symbol == symbol), None)
     group = inst.correlation_group if inst else None
@@ -137,10 +139,10 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     # No immediate re-entry after a stop-out (it re-bought USO in the same tick it was stopped).
     for sym in state.positions:
         if sym not in current and sym not in state.own_exits:
-            for s in cooldown_symbols(sym):
-                state.cooldown[s] = cooldown_until(sym, now)
+            state.cooldown[sym] = cooldown_until(sym, now)
     state.cooldown = {s: u for s, u in state.cooldown.items() if u > now.isoformat()}
-    kwargs = {"blocked": set(state.cooldown)}
+    halved = {p for s in state.cooldown for p in cooldown_symbols(s)[1:]} - set(state.cooldown)
+    kwargs = {"blocked": set(state.cooldown), "halved": halved}
     if fetch:
         kwargs["fetch"] = fetch
     if price_of is None and fetch is None:
