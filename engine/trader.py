@@ -23,6 +23,8 @@ import logbuch
 from broker.base import BrokerAdapter
 from config import Instrument
 from models import Action, AssetClass, Bar, Order, OrderStatus, OrderType, Position, Side, TradeRecord
+from engine.market_filter import MarketMove
+from engine.market_filter import size_factor as market_size_factor
 from risk import size_entry
 from strategies import build_strategy
 
@@ -91,6 +93,19 @@ def live_price(inst: Instrument) -> float | None:
         return None
 
 
+def _market_factor(fetch, price_of) -> float:
+    """Size factor from the SPY market filter (1.0 when off or SPY data is unavailable)."""
+    threshold = config.market_filter_pct()
+    spy = next((i for i in config.INSTRUMENTS if i.symbol == "SPY"), None)
+    if threshold <= 0 or spy is None:
+        return 1.0
+    try:
+        move = MarketMove(fetch(spy)).pct(_now(), price=price_of(spy) if price_of else None)
+    except Exception:  # the filter must never stop a tick
+        return 1.0
+    return market_size_factor(move, threshold)
+
+
 def run_tick(
     broker: BrokerAdapter,
     fetch: Callable[[Instrument], list[Bar]] = _fetch,
@@ -119,6 +134,7 @@ def run_tick(
     eod_mode = config.eod_flat_mode()
     paused = config.paused_strategies()
     paused_syms = config.paused_symbols()
+    market_factor = _market_factor(fetch, price_of)
     if not dry:
         ensure_protective_stops(broker, positions, open_orders)
     pending_buys = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.BUY}
@@ -172,6 +188,7 @@ def run_tick(
             else:  # ENTER_LONG, flat
                 # An entry that hasn't filled yet still counts for the correlation filter
                 # (2026-10-01: SPY and QQQ were both bought in one tick, SPY still unfilled).
+                mr_factor = market_factor if inst.strategy == "mean_reversion" else 1.0
                 held = dict(positions)
                 for s in pending_buys:
                     held.setdefault(s, Position(symbol=s, qty=1, avg_entry_price=0.0))
@@ -179,7 +196,10 @@ def run_tick(
                     symbol=sym, entry_price=(price_of(inst) if price_of else None) or signal.ref_price,
                     bars=bars, account=account,
                     positions=held, correlation_group=inst.correlation_group, group_of=_GROUP_OF,
-                    allow_fractional=crypto, size_factor=0.5 if sym in halved else 1.0,
+                    allow_fractional=crypto,
+                    size_factor=min(0.5 if sym in halved else 1.0, mr_factor),
+                    size_note=("group partner recently stopped out" if sym in halved
+                               else "market sell-off (SPY down since the open)"),
                 )
                 rec.plan = decision.plan
                 if not decision.approved:

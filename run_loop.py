@@ -77,7 +77,8 @@ def trade_events(records, results: dict[str, str] | None = None) -> list[str]:
         elif r.action_taken == "submitted" and r.plan:
             out.append(f"- 🟢 **{r.symbol}** gekauft: {i18n.qty(r.plan.qty)} Stück zu ca. {i18n.usd(r.plan.entry_price)}, "
                        f"Stop {i18n.usd(r.plan.stop_price)} ({strat}: {reason})"
-                       + (" — **halbe Größe** (verwandter Markt offen oder kürzlich ausgestoppt)"
+                       + (" — **halbe Größe** (Gesamtmarkt fällt)" if "market sell-off" in r.plan.reason
+                          else " — **halbe Größe** (verwandter Markt offen oder kürzlich ausgestoppt)"
                           if "half size" in r.plan.reason else ""))
         elif r.action_taken == "rejected":
             out.append(f"- ⚠️ **{r.symbol}** Kauforder vom Broker abgelehnt ({strat}: {reason})")

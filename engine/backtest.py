@@ -145,7 +145,8 @@ def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bo
             factor = size_factor(move.pct(bar.timestamp + timedelta(minutes=bar_minutes or 15)),
                                  market_filter_pct) if move else 1.0
             d = size_entry(symbol, bar.close, window, broker.get_account(), broker.get_positions(),
-                           allow_fractional=crypto, size_factor=factor)
+                           allow_fractional=crypto, size_factor=factor,
+                           size_note="market sell-off (SPY down since the open)")
             if d.approved:
                 broker.submit_order(Order(symbol=symbol, side=Side.BUY, qty=d.plan.qty))
                 broker.submit_order(Order(symbol=symbol, side=Side.SELL, qty=d.plan.qty,

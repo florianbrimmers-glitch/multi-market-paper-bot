@@ -37,3 +37,31 @@ def test_filter_comparison_runs_offline(monkeypatch, capsys):
     run_screen.compare_market_filter(["SPY", "QQQ"], 30, [1.0])
     out = capsys.readouterr().out
     assert "filter  0.0%: P/L" in out and "filter  1.0%: P/L" in out
+
+
+def test_live_tick_halves_mean_reversion_on_a_sell_off(monkeypatch, tmp_path):
+    import engine.trader
+    from broker.mock import MockBroker
+    from engine import run_tick
+    from tests import fixtures as fx
+    monkeypatch.setenv("DECISION_LOG_PATH", str(tmp_path / "log.jsonl"))
+    monkeypatch.setenv("DRY_RUN", "false")
+    now = datetime(2026, 10, 14, 15, 0, tzinfo=timezone.utc)  # 11:00 New York
+    monkeypatch.setattr(engine.trader, "_now", lambda: now)
+    spy_day = _spy_day([99.5, 99.0, 98.8, 98.6, 98.5, 98.4])
+
+    def fetch(inst):
+        if inst.symbol == "SPY":
+            return spy_day
+        return fx.flat_then_drop() if inst.symbol == "XLE" else fx.flat_series()
+
+    def qty(threshold):
+        monkeypatch.setenv("MARKET_FILTER_PCT", threshold)
+        b = MockBroker()
+        b.set_price("XLE", 90.0)
+        rec = next(r for r in run_tick(b, fetch=fetch, run_id="t") if r.symbol == "XLE")
+        assert rec.action_taken == "submitted"
+        return rec.plan
+
+    off, on = qty("0"), qty("1.0")
+    assert on.qty == off.qty // 2 and "market sell-off" in on.reason

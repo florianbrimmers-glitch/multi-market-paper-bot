@@ -46,6 +46,7 @@ def size_entry(
     group_of: dict[str, str | None] | None = None,
     allow_fractional: bool = False,
     size_factor: float = 1.0,
+    size_note: str = "group partner recently stopped out",
 ) -> RiskDecision:
     """Turn a raw ENTER_LONG signal into a risk-approved TradePlan, or reject it."""
     group_of = group_of or {}
@@ -55,7 +56,7 @@ def size_entry(
 
     notes = []
     if size_factor < 1.0:
-        notes.append("half size: group partner recently stopped out")
+        notes.append(f"half size: {size_note}")
     if correlation_group:
         partners = [h for h, pos in positions.items()
                     if h != symbol and pos.is_long and group_of.get(h) == correlation_group]

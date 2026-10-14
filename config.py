@@ -129,6 +129,12 @@ def atr_stop_mult() -> float:
     return _env_float("ATR_STOP_MULT", 1.5)
 
 
+def market_filter_pct() -> float:
+    """Mean-reversion entries are bought at half size while SPY is down more than this many percent
+    since today's open (engine.market_filter). 0 = off."""
+    return _env_float("MARKET_FILTER_PCT", 0.0)
+
+
 def max_position_pct() -> float:
     """No single position may exceed this fraction of equity in notional (default 50%). At 25% the cap,
     not the 0.5% risk budget, sized nearly every trade: QQQ 33 @ 747.65 risked ~0.12% of equity."""
