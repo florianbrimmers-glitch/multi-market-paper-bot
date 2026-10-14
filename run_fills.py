@@ -39,7 +39,7 @@ def account_snapshot(broker, day: date) -> list[str]:
     other = [x for x in a.json() if x.get("activity_type") != "FILL"]
     out.append("Sonstige Buchungen (ohne Käufe/Verkäufe):" if other else "Sonstige Buchungen: keine")
     # Raw activity stream since the previous evening, fills included, to reconcile cash.
-    since = f"{(day - timedelta(days=1)).isoformat()}T00:00:00Z"
+    since = f"{(day - timedelta(days=2)).isoformat()}T00:00:00Z"
     r = broker._client.get("/v2/account/activities",
                            params={"after": since, "direction": "asc", "page_size": 100})
     r.raise_for_status()
