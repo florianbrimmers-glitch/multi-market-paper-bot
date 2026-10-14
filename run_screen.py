@@ -38,6 +38,9 @@ def screen(symbol: str, strategy: str, timeframe: Timeframe, days: int) -> str:
 
 
 def main(argv: list[str]) -> None:
+    if argv[0] == "market_filter":  # run_screen.py market_filter <days> <thresholds,> <symbols...>
+        compare_market_filter(argv[3:], int(argv[1]), [float(x) for x in argv[2].split(",")])
+        return
     strategy, timeframe, days, symbols = argv[0], Timeframe(argv[1]), int(argv[2]), argv[3:]
     print(f"{strategy} on {timeframe.value}, last {days} days\n")
     for sym in symbols:
@@ -46,6 +49,43 @@ def main(argv: list[str]) -> None:
         except Exception as e:  # one bad symbol shouldn't end the screen
             print(f"{sym:<8} error: {e}")
     print("\nPaper/backtest only. Past behaviour is not a prediction of future returns.")
+
+
+
+def compare_market_filter(symbols: list[str], days: int, thresholds: list[float]) -> None:
+    """Mean reversion on 15-min bars with and without the SPY market filter, per symbol and for
+    the whole list run side by side (P/L summed by exit day; buying power is not modelled)."""
+    from collections import defaultdict
+
+    spy = fetch_bars("SPY", AssetClass.EQUITY, Timeframe.M15, limit=10_000, days=days)
+    data = {s: fetch_bars(s, AssetClass.EQUITY, Timeframe.M15, limit=10_000, days=days) for s in symbols}
+    variants = [0.0] + thresholds
+    print(f"Market filter on mean reversion, 15Min, last {days} days "
+          f"(0 = off; x = half size when SPY is down more than x % since the open)\n")
+    totals = {}
+    for th in variants:
+        by_day: dict = defaultdict(float)
+        n = 0
+        for sym, bars in data.items():
+            res = backtest_symbol(sym, "mean_reversion", bars, eod_mode="off", bar_minutes=15,
+                                  market_bars=spy, market_filter_pct=th)
+            for t in res.closed_trades:
+                by_day[t.exit_time[:10]] += t.pnl
+                n += 1
+            print(f"  filter {th:>4.1f}%  {res.summary()}")
+        days_sorted = sorted(by_day)
+        curve, peak, dd = 0.0, 0.0, 0.0
+        for d in days_sorted:
+            curve += by_day[d]
+            peak = max(peak, curve)
+            dd = max(dd, peak - curve)
+        worst = sorted(by_day.items(), key=lambda kv: kv[1])[:5]
+        totals[th] = (sum(by_day.values()), n, dd, worst)
+        print()
+    print("Portfolio (all symbols together):")
+    for th, (pnl, n, dd, worst) in totals.items():
+        w = ", ".join(f"{d} {v:+.0f}" for d, v in worst)
+        print(f"  filter {th:>4.1f}%: P/L {pnl:+9.0f} $  trades {n:4d}  max drawdown {dd:7.0f} $  worst days: {w}")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import config
 from broker.mock import MockBroker
 from models import Action, Bar, Order, OrderType, Side
+from engine.market_filter import MarketMove, size_factor
 from risk import size_entry
 from strategies import build_strategy
 
@@ -91,15 +92,19 @@ class BacktestResult:
 
 def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bool = False,
                     starting_equity: float = 100_000.0, eod_mode: str | None = None,
-                    bar_minutes: int | None = None) -> BacktestResult:
+                    bar_minutes: int | None = None, market_bars: list[Bar] | None = None,
+                    market_filter_pct: float = 0.0) -> BacktestResult:
     """eod_mode (mean reversion on equities): None = no session rules; otherwise the live rules
     (no entries in the first 30 / last 30 minutes) plus 'all' | 'winners' | 'off' at the close.
-    bar_minutes: bar length, needed for the session rules."""
+    bar_minutes: bar length, needed for the session rules.
+    market_bars + market_filter_pct: SPY 15-min bars; entries while SPY is down more than the
+    threshold since the open are bought at half size (see engine.market_filter)."""
     broker = MockBroker(starting_equity)
     session_rules = eod_mode is not None and not crypto and bar_minutes
     strat = build_strategy(strategy_name, config.STRATEGY_PARAMS)
     res = BacktestResult(symbol, strategy_name, starting_equity, starting_equity)
     open_trade: Trade | None = None
+    move = MarketMove(market_bars) if market_bars and market_filter_pct > 0 else None
 
     for i, bar in enumerate(bars):
         window = bars[: i + 1]
@@ -136,8 +141,11 @@ def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bo
             open_trade.reason_out = sig.reason
             open_trade = None
         elif sig.action == Action.ENTER_LONG and not open_trade:
+            # The bar is evaluated once it has closed, so the market move is known up to then.
+            factor = size_factor(move.pct(bar.timestamp + timedelta(minutes=bar_minutes or 15)),
+                                 market_filter_pct) if move else 1.0
             d = size_entry(symbol, bar.close, window, broker.get_account(), broker.get_positions(),
-                           allow_fractional=crypto)
+                           allow_fractional=crypto, size_factor=factor)
             if d.approved:
                 broker.submit_order(Order(symbol=symbol, side=Side.BUY, qty=d.plan.qty))
                 broker.submit_order(Order(symbol=symbol, side=Side.SELL, qty=d.plan.qty,
