@@ -33,6 +33,15 @@ def account_snapshot(broker) -> list[str]:
     for ts, eq in zip(hist.get("timestamp") or [], hist.get("equity") or []):
         if eq is not None:
             out.append(f"- Schlusswert {datetime.fromtimestamp(ts, NY).strftime('%d.%m.')}: {i18n.usd(eq)}")
+    # Everything that moved cash besides fills (fees, interest, transfers, corrections).
+    a = broker._client.get("/v2/account/activities", params={"direction": "desc", "page_size": 100})
+    a.raise_for_status()
+    other = [x for x in a.json() if x.get("activity_type") != "FILL"]
+    out.append("Sonstige Buchungen (ohne Käufe/Verkäufe):" if other else "Sonstige Buchungen: keine")
+    for x in other[:30]:
+        out.append(f"- {x.get('date') or x.get('transaction_time', '')[:16]} {x.get('activity_type')} "
+                   f"{x.get('symbol') or ''} {x.get('net_amount') or x.get('qty') or ''} "
+                   f"{x.get('description') or ''}".rstrip())
     return out
 
 
