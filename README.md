@@ -78,6 +78,11 @@ aber dieselben Unternehmen und Indizes ab.
   weitgehend gemeinsam. Ist aus einer Gruppe schon ein Markt gekauft, wird ein weiterer mit
   **halber Größe** gekauft statt übersprungen (seit 14.10.2026). So laufen mehr Trades, ohne dass
   dieselbe Marktbewegung doppelt zählt.
+- **Marktfilter (getestet, aus):** `MARKET_FILTER_PCT` würde Mean-Reversion-Käufe halbieren,
+  solange SPY seit der Eröffnung mehr als x % im Minus ist. Im Backtest (180 Tage, 13 Märkte)
+  brachte das weniger Gewinn und keinen kleineren Drawdown: Die schlechtesten Tage begannen,
+  bevor SPY deutlich fiel, und Käufe in tiefe Rückgänge gehörten zu den besten Trades.
+  Standard daher 0 (aus).
 - **Eröffnungsphase:** In den ersten 30 Minuten nach der US-Eröffnung (`OPENING_DELAY_MIN`)
   kauft Mean Reversion nichts. Die 15-Minuten-Kerzen stammen dann noch größtenteils vom Vortag,
   und die Kurslücke über Nacht würde sonst als Kaufsignal gelten. Verkäufe laufen normal weiter.
