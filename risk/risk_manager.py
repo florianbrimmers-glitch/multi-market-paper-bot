@@ -17,6 +17,9 @@ from indicators import atr
 from models import Account, Bar, Position, Side, TradePlan
 
 
+BUYING_POWER_USE = 0.97  # leave 3% of the remaining buying power as headroom
+
+
 @dataclass
 class RiskDecision:
     plan: TradePlan | None
@@ -70,7 +73,9 @@ def size_entry(
     dist = stop_distance(entry_price, bars)
     qty = account.equity * config.risk_per_trade_pct() / dist
     qty = size_factor * min(qty, account.equity * config.max_position_pct() / entry_price)
-    qty = min(qty, account.buying_power / entry_price)
+    # Alpaca prices a market buy with a small buffer above the last price, so using the buying
+    # power to the last dollar gets rejected (2026-10-15: XLU, $42,164 needed vs $41,996 left).
+    qty = min(qty, account.buying_power * BUYING_POWER_USE / entry_price)
     if not allow_fractional:
         qty = math.floor(qty)
     if qty <= 0:

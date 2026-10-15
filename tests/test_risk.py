@@ -61,7 +61,7 @@ def test_already_long_is_rejected():
 def test_buying_power_limits_size():
     acct = Account(equity=100_000.0, cash=1_000.0, buying_power=1_000.0)
     dec = size_entry("SPY", 100.0, fx.flat_series(), acct, positions={})
-    assert dec.plan.qty == 10
+    assert dec.plan.qty == 9   # 97% of $1,000 at $100
 
 
 def test_crypto_allows_fractional_qty():
@@ -78,3 +78,10 @@ def test_stop_is_at_least_half_a_percent_away():
 def test_atr_stop_between_floor_and_cap_is_kept():
     mid = [fx.bar(100.0, i, high=100.25, low=99.75) for i in range(20)]  # ATR 0.5 -> 0.75
     assert stop_distance(100.0, mid) == pytest.approx(0.75)
+
+
+def test_leaves_headroom_below_the_remaining_buying_power():
+    from models import Account
+    acct = Account(equity=100_000.0, cash=0.0, buying_power=42_000.0, last_equity=100_000.0)
+    dec = size_entry("XLU", 41.19, fx.flat_series(level=41.19), acct, positions={})
+    assert dec.approved and dec.plan.qty * 41.19 <= 42_000.0 * 0.97
