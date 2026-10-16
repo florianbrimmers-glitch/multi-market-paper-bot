@@ -39,7 +39,13 @@ def trade(bars, start: int, entry: float, hold: int) -> float:
 
 
 def main(argv: list[str]) -> None:
+    """argv: days [min_move_pct] [min_close_position 0..1] [tiers comma-separated]."""
     days = int(argv[0]) if argv else 730
+    min_move = float(argv[1]) if len(argv) > 1 else MOVE_PCT
+    min_close_pos = float(argv[2]) if len(argv) > 2 else 0.0
+    tiers = set(argv[3].split(",")) if len(argv) > 3 else {"groß", "mittel", "klein"}
+    print(f"Variant: move >= {min_move:g} %, close in the top {100 - min_close_pos * 100:.0f} % of the day's "
+          f"range, liquidity {', '.join(sorted(tiers))}")
     symbols = us_equities()
     print(f"{len(symbols)} tradable US symbols")
     bars = daily_bars(symbols, days)
@@ -55,13 +61,23 @@ def main(argv: list[str]) -> None:
     cuts = sorted(liquid.values())
     t1, t2 = cuts[len(cuts) // 3], cuts[2 * len(cuts) // 3]
 
+    def tier_of(s):
+        return "groß" if liquid[s] >= t2 else "mittel" if liquid[s] >= t1 else "klein"
+
     candidates = defaultdict(list)  # event day -> [(symbol, index)]
+    base = defaultdict(list)        # same trade on ordinary days, as the yardstick
     for s in liquid:
+        if tier_of(s) not in tiers:
+            continue
         b = bars[s]
         for i in range(21, len(b) - 11):
+            if i % 5 == 0:
+                base[tier_of(s)].append(trade(b, i + 1, b[i].close, 5))
             move = (b[i].close / b[i - 1].close - 1) * 100
             avg_vol = mean(x.volume for x in b[i - 20:i]) or 1
-            if move >= MOVE_PCT and b[i].volume >= VOL_MULT * avg_vol:
+            rng = b[i].high - b[i].low
+            close_pos = (b[i].close - b[i].low) / rng if rng > 0 else 1.0
+            if move >= min_move and b[i].volume >= VOL_MULT * avg_vol and close_pos >= min_close_pos:
                 candidates[b[i].timestamp].append((s, i))
     print(f"{sum(len(v) for v in candidates.values())} up-move events on {len(candidates)} days; checking news")
 
@@ -75,7 +91,7 @@ def main(argv: list[str]) -> None:
         for s, i in items:
             if any(n.is_earnings for n in news.get(s, [])):
                 b = bars[s]
-                tier = "groß" if liquid[s] >= t2 else "mittel" if liquid[s] >= t1 else "klein"
+                tier = tier_of(s)
                 events.append({"day": day, "tier": tier,
                                "c5": trade(b, i + 1, b[i].close, 5), "c10": trade(b, i + 1, b[i].close, 10),
                                "o5": trade(b, i + 1, b[i + 1].open, 5)})
@@ -93,7 +109,11 @@ def main(argv: list[str]) -> None:
     print("|---|---|---|---|---|---|---|")
     row("alle", events)
     for tier in ("groß", "mittel", "klein"):
-        row(f"Liquidität {tier}", [e for e in events if e["tier"] == tier])
+        if tier in tiers:
+            row(f"Liquidität {tier}", [e for e in events if e["tier"] == tier])
+    print("\nYardstick, same trade (buy at the close, 3 % stop, 5 days) on ordinary days:")
+    for tier, vals in base.items():
+        print(f"- Liquidität {tier}: {_m(vals):+.2f} % ({len(vals)} samples)")
     per_month = len(events) / (days / 30.4)
     print(f"\nAbout {per_month:.0f} signals per month.")
     print("Paper/backtest only. Past behaviour is not a prediction of future returns.")
