@@ -77,6 +77,25 @@ def drift_scan() -> None:
 
 
 def main(argv: list[str]) -> None:
+    if argv[0] == "drift_dry":  # the live earnings-drift pass for today's session, DRY_RUN (no orders)
+        import os
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from brief.schedule import BriefState
+        from broker import AlpacaBroker
+        from engine import earnings_drift
+        from models import Clock
+        os.environ["DRY_RUN"] = "true"
+        ny = ZoneInfo("America/New_York")
+        now = datetime.now(ny)
+        ts = now.replace(hour=15, minute=45, second=0, microsecond=0)
+        clock = Clock(timestamp=ts, is_open=True, next_open=ts, next_close=ts.replace(hour=16, minute=0))
+        with AlpacaBroker() as broker:
+            for line in earnings_drift.run(broker, BriefState(), clock):
+                print(line)
+        print("done")
+        return
     if argv[0] == "drift_scan":  # dry earnings-drift scan on the latest full session (no orders)
         drift_scan()
         return
