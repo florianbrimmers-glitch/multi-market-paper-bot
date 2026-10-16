@@ -166,9 +166,9 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     if drift is not None and drift.is_due(clock, state):
         try:
             events += drift.run(broker, state, clock)
-        except Exception:  # noqa: BLE001 — the drift pass must never break the tick
+        except Exception as e:  # noqa: BLE001 — the drift pass must never break the tick
             log.exception("earnings drift pass failed")
-            events.append("- ⚠️ Earnings-Drift: Prüfung fehlgeschlagen (Details im Log)")
+            events.append(f"- ⚠️ Earnings-Drift: Prüfung fehlgeschlagen (`{type(e).__name__}: {str(e)[:200]}`)")
     state.positions = {s: [p.qty, p.avg_entry_price] for s, p in broker.get_positions().items()}
     save_state(state)
     if events:
