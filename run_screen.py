@@ -49,7 +49,37 @@ def list_trades(symbol: str, days: int, since: str) -> None:
             print(f"- {t.entry_time[:16]} buy {t.qty:g} @ {t.entry_price:.2f} -> {out}")
 
 
+def drift_scan() -> None:
+    """What the earnings-drift pass would buy on the latest session in the snapshots. Read-only."""
+    from collections import Counter
+    from datetime import date, datetime, timedelta, timezone
+
+    from data.universe import news_for, snapshots
+    from engine import earnings_drift as drift
+
+    probe = snapshots(["SPY"])
+    day = probe["SPY"]["day"]
+    drift._universe_cache.clear()
+    universe = drift.build_universe((date.fromisoformat(day) + timedelta(days=1)).isoformat())
+    snaps = snapshots(sorted(universe))
+    day = Counter(q["day"] for q in snaps.values()).most_common(1)[0][0]
+    cands = drift.candidates(universe, snaps, day)
+    print(f"Session {day}: universe {len(universe)} mid/small caps, {len(cands)} strong up-moves")
+    end = datetime.fromisoformat(day + "T20:00:00+00:00")
+    news = {}
+    syms = [c[0] for c in cands]
+    for k in range(0, len(syms), 50):
+        news.update(news_for(syms[k:k + 50], end - timedelta(hours=24), end))
+    for sym, q, move in cands:
+        heads = [n.headline for n in news.get(sym, []) if n.is_earnings]
+        flag = "KAUF" if heads else "keine Zahlen"
+        print(f"- {sym:<6} +{move:4.1f} %  {flag:<12} {heads[0][:90] if heads else ''}")
+
+
 def main(argv: list[str]) -> None:
+    if argv[0] == "drift_scan":  # dry earnings-drift scan on the latest full session (no orders)
+        drift_scan()
+        return
     if argv[0] == "earnings_study":  # run_screen.py earnings_study <days> <move,close_pos,tiers|-> ...
         import run_earnings_study
         extra = [] if argv[2] == "-" else argv[2].split(";")
