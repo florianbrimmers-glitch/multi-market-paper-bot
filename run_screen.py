@@ -37,7 +37,22 @@ def screen(symbol: str, strategy: str, timeframe: Timeframe, days: int) -> str:
             f"buy&hold%={hold:6.1f} bars={len(bars)} from={bars[0].timestamp.date()}")
 
 
+def list_trades(symbol: str, days: int, since: str) -> None:
+    """Every mean-reversion trade the backtest makes on `symbol` (15-min bars, live rules) since
+    a date, e.g. to check what a skipped or rejected live entry would have done."""
+    bars = fetch_bars(symbol, AssetClass.EQUITY, Timeframe.M15, limit=10_000, days=days)
+    res = backtest_symbol(symbol, "mean_reversion", bars, eod_mode="off", bar_minutes=15)
+    print(f"{symbol} mean reversion trades since {since} (times UTC, bar start)")
+    for t in res.trades:
+        if t.entry_time[:10] >= since:
+            out = f"{t.exit_time[:16]} @ {t.exit_price:.2f} ({t.reason_out}) P/L {t.pnl:+.2f}" if t.closed else "open"
+            print(f"- {t.entry_time[:16]} buy {t.qty:g} @ {t.entry_price:.2f} -> {out}")
+
+
 def main(argv: list[str]) -> None:
+    if argv[0] == "trades":  # run_screen.py trades <days> <since YYYY-MM-DD> <symbol>
+        list_trades(argv[3], int(argv[1]), argv[2])
+        return
     if argv[0] == "market_filter":  # run_screen.py market_filter <days> <thresholds,> <symbols...>
         compare_market_filter(argv[3:], int(argv[1]), [float(x) for x in argv[2].split(",")])
         return
