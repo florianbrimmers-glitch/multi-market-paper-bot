@@ -73,3 +73,19 @@ def news_for(symbols: list[str], start: datetime, end: datetime) -> dict[str, li
                 break
             params["page_token"] = body["next_page_token"]
     return out
+
+
+def snapshots(symbols: list[str], batch: int = 200) -> dict[str, dict]:
+    """Today's bar so far, the previous day's bar and the last trade, per symbol (IEX)."""
+    out: dict[str, dict] = {}
+    with _client(config.alpaca_data_url()) as c:
+        for i in range(0, len(symbols), batch):
+            time.sleep(0.35)
+            r = _get(c, "/v2/stocks/snapshots", {"symbols": ",".join(symbols[i:i + batch]), "feed": "iex"})
+            r.raise_for_status()
+            for sym, snap in (r.json() or {}).items():
+                day, prev, trade = snap.get("dailyBar") or {}, snap.get("prevDailyBar") or {}, snap.get("latestTrade") or {}
+                if day and prev:
+                    out[sym] = {"o": day["o"], "h": day["h"], "l": day["l"], "c": day["c"], "v": day["v"],
+                                "day": day["t"][:10], "prev_close": prev["c"], "price": trade.get("p") or day["c"]}
+    return out

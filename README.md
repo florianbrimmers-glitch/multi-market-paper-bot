@@ -57,6 +57,22 @@ Die Backtest-Zahlen sind deshalb eine Obergrenze, keine Prognose.
 **Pausierte Einzelwerte:** `DB` kauft seit 12.10.2026 nichts Neues (−2,1 % im Screen, 41 von 72
 Trades ausgestoppt). Gesteuert über `PAUSED_SYMBOLS` in `config.py` (Standard `DB`).
 
+**Earnings-Drift (seit 16.10.2026):** Eine zweite Strategie neben Mean Reversion, über den ganzen
+US-Markt statt einer festen Liste.
+- **Wann:** Einmal pro Handelstag, 15 Minuten vor US-Börsenschluss (21:45 Uhr deutscher Zeit).
+- **Welche Werte:** Alle liquiden US-Aktien mittlerer und kleiner Größe (Kurs ≥ 10 $; die größten
+  ~800 Werte und die eigenen Instrumente ausgenommen).
+- **Kaufsignal:** Kurs heute ≥ 6 % über dem Vortag, nahe am Tageshoch (oberes Viertel der
+  Spanne), mindestens doppeltes Volumen und eine Quartalszahlen-Schlagzeile seit gestern Abend.
+- **Ausstieg:** Stop 3 % unter Einstieg, Verkauf nach 10 Handelstagen.
+- **Größe:** 0,15 % Risiko pro Trade (etwa 5 % des Kontos je Position); alle Drift-Positionen
+  zusammen höchstens 50 % des Kontos, damit Mean Reversion genug Kaufkraft behält.
+- **Grundlage:** `run_earnings_study.py` (2 Jahre, alle liquiden US-Aktien). Mittlere und kleine
+  Werte: Trade über 5 Tage +0,6 bis +0,8 % gegen +0,25 % an normalen Tagen, in beiden Hälften des
+  Zeitraums positiv. Große Werte zeigten keinen Vorteil. Kauf erst am nächsten Morgen brachte
+  kaum noch etwas, deshalb kauft der Bot kurz vor Schluss.
+- **Abschalten:** `DRIFT_ENABLED=false`.
+
 **Deutsche Werte:** Alpaca hat keinen Zugang zu Xetra oder Frankfurt. Die deutschen Werte sind
 deshalb ihre **US-Notierungen**. Sie werden in USD und zu US-Börsenzeiten gehandelt, bilden
 aber dieselben Unternehmen und Indizes ab.

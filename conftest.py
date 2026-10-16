@@ -24,3 +24,9 @@ def _no_paused_strategies(monkeypatch):
     """Tests exercise every strategy; the live default pause list is covered by its own tests."""
     monkeypatch.setenv("PAUSED_STRATEGIES", "")
     monkeypatch.setenv("PAUSED_SYMBOLS", "")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_drift_scan(monkeypatch):
+    """The earnings-drift scan reads the whole market; tests that want it inject fakes."""
+    monkeypatch.setenv("DRIFT_ENABLED", "false")

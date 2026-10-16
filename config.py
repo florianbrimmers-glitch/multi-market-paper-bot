@@ -129,6 +129,22 @@ def atr_stop_mult() -> float:
     return _env_float("ATR_STOP_MULT", 1.5)
 
 
+def drift_enabled() -> bool:
+    """Earnings drift (engine/earnings_drift.py) on/off. Default on."""
+    return os.environ.get("DRIFT_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
+DRIFT_RISK_PCT = 0.0015        # risk per earnings-drift trade (a third of mean reversion's 0.5%)
+DRIFT_STOP_PCT = 0.03          # stop 3% below the entry
+DRIFT_MAX_EXPOSURE_PCT = 0.50  # all drift positions together: at most half the account
+DRIFT_HOLD_DAYS = 10           # trading days, then sold 15 minutes before the close
+DRIFT_MIN_MOVE_PCT = 6.0       # day's move vs the previous close
+DRIFT_MIN_CLOSE_POS = 0.75     # price in the top quarter of the day's range
+DRIFT_VOL_MULT = 2.0           # day's volume vs its 20-day average
+DRIFT_MIN_PRICE = 10.0
+DRIFT_MIN_IEX_DOLLARS = 1_000_000  # median daily IEX dollar volume; the top third (large caps) is excluded
+
+
 def market_filter_pct() -> float:
     """Mean-reversion entries are bought at half size while SPY is down more than this many percent
     since today's open (engine.market_filter). 0 = off."""

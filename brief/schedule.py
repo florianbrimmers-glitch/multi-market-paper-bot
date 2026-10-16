@@ -29,6 +29,8 @@ class BriefState(BaseModel):
     positions: dict[str, list[float]] = {}  # symbol -> [qty, avg entry] after the last tick
     own_exits: list[str] = []  # symbols the bot closed itself in the last tick
     cooldown: dict[str, str] = {}  # symbol -> ISO time until which re-entry is blocked
+    drift: dict[str, dict[str, str]] = {}  # earnings-drift positions: symbol -> {entry_on, exit_on}
+    drift_day: str = ""  # New York date of the last earnings-drift pass
 
 
 def state_path() -> str:

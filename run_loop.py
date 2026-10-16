@@ -22,7 +22,7 @@ import logbuch
 from brief.deliver import TRADE_LOG_TITLE, post_brief, post_comment
 from brief.schedule import brief_due, load_state, save_state
 from broker import AlpacaBroker
-from engine import run_tick
+from engine import earnings_drift, run_tick
 
 log = logging.getLogger("run_loop")
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -48,7 +48,7 @@ NOTABLE = ("submitted", "rejected", "exit")
 
 
 STRATEGY_DE = {"mean_reversion": "Mean Reversion", "momentum_breakout": "Momentum-Ausbruch",
-               "trend_following": "Trendfolge"}
+               "trend_following": "Trendfolge", "earnings_drift": "Earnings-Drift"}
 
 
 def result_text(entry: float, fill: tuple[float, float] | None) -> str:
@@ -132,7 +132,7 @@ def cooldown_symbols(symbol: str) -> list[str]:
 
 def loop_once(broker, state, build=None, publisher=publish, fetch=None,
               notify=lambda body: post_comment(TRADE_LOG_TITLE, body),
-              price_of=None) -> tuple[list, str | None]:
+              price_of=None, drift=earnings_drift) -> tuple[list, str | None]:
     """One tick + trade notifications + a brief if due. Collaborators are injectable for tests."""
     now = datetime.now(timezone.utc)
     current = broker.get_positions()
@@ -161,8 +161,15 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
             fill = broker.last_sell_fill(r.symbol, since=now, wait=5.0)
             results[r.symbol] = result_text(pos.avg_entry_price, fill)
     events = stopped + trade_events(records, results)
-    state.positions = {s: [p.qty, p.avg_entry_price] for s, p in broker.get_positions().items()}
     state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
+    clock = broker.clock()
+    if drift is not None and drift.is_due(clock, state):
+        try:
+            events += drift.run(broker, state, clock)
+        except Exception:  # noqa: BLE001 — the drift pass must never break the tick
+            log.exception("earnings drift pass failed")
+            events.append("- ⚠️ Earnings-Drift: Prüfung fehlgeschlagen (Details im Log)")
+    state.positions = {s: [p.qty, p.avg_entry_price] for s, p in broker.get_positions().items()}
     save_state(state)
     if events:
         stamp = datetime.now(BERLIN).strftime("%d.%m.%Y %H:%M Uhr")
