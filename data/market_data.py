@@ -35,13 +35,24 @@ def latest_price(symbol: str, asset_class: AssetClass) -> float | None:
     return float(trade["p"]) if trade and trade.get("p") else None
 
 
-def _get(client, path: str, params: dict):
-    """GET with back-off on 429: the data API allows ~200 requests/min per key, shared by the live
-    loop and any research run."""
-    for attempt in range(6):
-        r = client.get(path, params=params)
-        if r.status_code != 429:
-            return r
+RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def _get(client, path: str, params: dict, attempts: int = 6):
+    """GET with back-off on 429 (the data API allows ~200 requests/min per key, shared by the live
+    loop and research runs) and on transient server errors and timeouts (2026-10-16: one 504
+    stopped the whole earnings-drift scan)."""
+    import httpx
+
+    r = None
+    for attempt in range(attempts):
+        try:
+            r = client.get(path, params=params)
+            if r.status_code not in RETRY_STATUS:
+                return r
+        except httpx.TransportError:  # timeouts, dropped connections
+            if attempt == attempts - 1:
+                raise
         time.sleep(2 ** attempt)
     return r
 

@@ -113,3 +113,51 @@ def test_universe_drops_large_caps_illiquid_and_own_instruments():
     assert set(u) == {"MID", "SMALL"}            # BIG = top third; THIN/CHEAP filtered; SPY is ours
     assert u["MID"]["avg_vol"] == 100_000
     drift._universe_cache.clear()
+
+
+def test_get_retries_transient_server_errors(monkeypatch):
+    import httpx
+
+    from data import market_data
+    monkeypatch.setattr(market_data.time, "sleep", lambda s: None)
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(504 if len(calls) < 3 else 200, json={})
+
+    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://x") as c:
+        assert market_data._get(c, "/v2/stocks/bars", {}).status_code == 200
+    assert len(calls) == 3
+
+
+def test_one_failing_batch_does_not_stop_the_scan(monkeypatch):
+    import httpx
+
+    from data import universe
+    monkeypatch.setattr(universe.time, "sleep", lambda s: None)
+    monkeypatch.setattr("data.market_data.time.sleep", lambda s: None)
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_API_SECRET", "s")
+
+    def handler(request):
+        syms = request.url.params["symbols"].split(",")
+        if "BAD" in syms:
+            return httpx.Response(504, json={})
+        bar = {"t": "2026-10-15T04:00:00Z", "o": 1, "h": 1, "l": 1, "c": 1, "v": 1}
+        return httpx.Response(200, json={"bars": {s: [bar] for s in syms}})
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    out = universe.daily_bars(["AAA", "BAD", "CCC"], 60, batch=1)
+    assert set(out) == {"AAA", "CCC"}
+
+
+def test_warm_up_builds_the_universe_once_after_the_open(monkeypatch):
+    monkeypatch.setenv("DRIFT_ENABLED", "true")
+    built = []
+    monkeypatch.setattr(drift, "build_universe", lambda today: built.append(today))
+    drift._universe_cache.clear()
+    drift.warm_up(_clock(h=9, m=35))         # too early
+    drift.warm_up(_clock(h=9, m=45))
+    assert built == ["2026-10-15"]

@@ -163,6 +163,8 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     events = stopped + trade_events(records, results)
     state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
     clock = broker.clock()
+    if drift is not None:
+        drift.warm_up(clock)
     if drift is not None and drift.is_due(clock, state):
         try:
             events += drift.run(broker, state, clock)

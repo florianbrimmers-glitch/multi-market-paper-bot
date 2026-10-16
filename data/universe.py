@@ -2,6 +2,7 @@
 symbols per request, and news for many symbols per request. Read-only."""
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,8 @@ import config
 from data.market_data import _get, _parse_bars
 from data.news import NewsItem
 from models import Bar
+
+log = logging.getLogger(__name__)
 
 
 def _client(base_url: str):
@@ -38,16 +41,21 @@ def daily_bars(symbols: list[str], days: int, batch: int = 200) -> dict[str, lis
         for i in range(0, len(symbols), batch):
             params: dict[str, object] = {"symbols": ",".join(symbols[i:i + batch]), "timeframe": "1Day",
                                          "start": start, "limit": 10_000, "feed": "iex", "adjustment": "all"}
-            while True:
-                time.sleep(0.35)
-                r = _get(c, "/v2/stocks/bars", params)
-                r.raise_for_status()
-                body = r.json()
-                for sym, bars in (body.get("bars") or {}).items():
-                    raw[sym].extend(bars)
-                if not body.get("next_page_token"):
-                    break
-                params["page_token"] = body["next_page_token"]
+            try:
+                while True:
+                    time.sleep(0.35)
+                    r = _get(c, "/v2/stocks/bars", params)
+                    r.raise_for_status()
+                    body = r.json()
+                    for sym, bars in (body.get("bars") or {}).items():
+                        raw[sym].extend(bars)
+                    if not body.get("next_page_token"):
+                        break
+                    params["page_token"] = body["next_page_token"]
+            except Exception as e:  # noqa: BLE001 — one bad batch costs ~200 symbols, not the whole scan
+                log.warning("daily bars: batch %d failed after retries (%s); skipped", i // batch, e)
+                for sym in symbols[i:i + batch]:
+                    raw.pop(sym, None)
     return {s: sorted(_parse_bars(b), key=lambda x: x.timestamp) for s, b in raw.items()}
 
 

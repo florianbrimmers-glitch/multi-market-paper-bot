@@ -83,6 +83,21 @@ def candidates(universe: dict, snaps: dict, today: str) -> list[tuple[str, dict,
     return sorted(out, key=lambda x: -x[2])
 
 
+def warm_up(clock) -> None:
+    """Build today's universe early in the session (first tick 15+ minutes after the open), so
+    the pass before the close only needs snapshots and news. Failures are retried next tick."""
+    if not clock.is_open or not config.drift_enabled():
+        return
+    today = clock.timestamp.astimezone(NY).date().isoformat()
+    opened = clock.timestamp.astimezone(NY).replace(hour=9, minute=30, second=0, microsecond=0)
+    if _universe_cache.get("day") == today or (clock.timestamp - opened).total_seconds() < 15 * 60:
+        return
+    try:
+        build_universe(today)
+    except Exception:  # noqa: BLE001
+        log.warning("earnings drift universe warm-up failed; retrying next tick", exc_info=True)
+
+
 def is_due(clock, state) -> bool:
     if not clock.is_open:
         return False
