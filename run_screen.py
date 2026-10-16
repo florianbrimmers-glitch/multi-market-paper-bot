@@ -50,6 +50,10 @@ def list_trades(symbol: str, days: int, since: str) -> None:
 
 
 def main(argv: list[str]) -> None:
+    if argv[0] == "earnings_study":  # run_screen.py earnings_study <days>
+        import run_earnings_study
+        run_earnings_study.main([argv[1]])
+        return
     if argv[0] == "news_study":  # run_screen.py news_study <days> <unused> <symbols...>
         import run_news_study
         run_news_study.main([argv[1]] + argv[3:])
