@@ -104,5 +104,26 @@ def main(day: date) -> None:
     print(f"Summe realisiert: **{i18n.signed_usd(total)}**")
 
 
+def history() -> None:
+    """Closing equity per trading day since the account started, with daily and total change."""
+    with AlpacaBroker() as broker:
+        h = broker._client.get("/v2/account/portfolio/history", params={"period": "1A", "timeframe": "1D"})
+        h.raise_for_status()
+        d = h.json()
+    rows = [(ts, eq) for ts, eq in zip(d.get("timestamp") or [], d.get("equity") or []) if eq]
+    start = rows[0][1] if rows else 0
+    print("| Tag | Schlusswert | Tag % | seit Start % |")
+    print("|---|---|---|---|")
+    prev = None
+    for ts, eq in rows:
+        day = i18n.pct((eq / prev - 1) * 100) if prev else "–"
+        print(f"| {datetime.fromtimestamp(ts, NY).strftime('%a %d.%m.')} | {i18n.usd(eq)} | {day} | "
+              f"{i18n.pct((eq / start - 1) * 100)} |")
+        prev = eq
+
+
 if __name__ == "__main__":
-    main(date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else datetime.now(NY).date())
+    if len(sys.argv) > 1 and sys.argv[1] == "history":
+        history()
+    else:
+        main(date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else datetime.now(NY).date())
