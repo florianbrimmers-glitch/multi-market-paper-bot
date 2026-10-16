@@ -8,6 +8,7 @@ from datetime import datetime
 
 import config
 
+MAX_SYMBOLS = 3
 _EARNINGS = re.compile(r"\b(earnings|eps|revenue|results|guidance|outlook|q[1-4]|quarter(ly)?|"
                        r"beats?|miss(es)?|forecast)\b", re.IGNORECASE)
 
@@ -20,7 +21,10 @@ class NewsItem:
 
     @property
     def is_earnings(self) -> bool:
-        return bool(_EARNINGS.search(self.headline))
+        """An earnings headline about this company. Market roundups tag many tickers ("Crude Oil
+        Moves Higher; Charles Schwab Shares Fall After Q3 Results" was filed under PAG too), so
+        only items naming at most MAX_SYMBOLS companies count."""
+        return len(self.symbols) <= MAX_SYMBOLS and bool(_EARNINGS.search(self.headline))
 
 
 def fetch_news(symbol: str, start: datetime, end: datetime, limit: int = 50) -> list[NewsItem]:

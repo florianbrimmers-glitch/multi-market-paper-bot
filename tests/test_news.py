@@ -9,6 +9,9 @@ def test_earnings_headlines_are_recognised():
     assert NewsItem(t, "Netflix Q3 EPS Beats Estimates", ["NFLX"]).is_earnings
     assert NewsItem(t, "Apple raises full-year guidance", ["AAPL"]).is_earnings
     assert not NewsItem(t, "Tesla recalls 50,000 vehicles", ["TSLA"]).is_earnings
+    roundup = NewsItem(t, "Crude Oil Moves Higher; Charles Schwab Shares Fall After Q3 Results",
+                       ["SCHW", "PAG", "ERIC", "XOM", "CVX"])
+    assert not roundup.is_earnings
 
 
 def test_study_finds_a_news_jump_and_measures_the_drift(monkeypatch, capsys):
