@@ -39,10 +39,9 @@ def _trade(bars, start: int, entry: float, hold: int) -> float:
     return (bars[start + hold - 1].close / entry - 1) * 100
 
 
-def gap_events(symbol: str, days: int):
+def gap_events(bars):
     """Opening gaps of >= MOVE_PCT, bought right at the open (the earliest regular-session entry
     after a release before the open or after the previous close)."""
-    bars = fetch_bars(symbol, AssetClass.EQUITY, Timeframe.D1, limit=10_000, days=days)
     out = []
     for i in range(21, len(bars) - 10):
         gap = (bars[i].open / bars[i - 1].close - 1) * 100
@@ -53,8 +52,7 @@ def gap_events(symbol: str, days: int):
     return out
 
 
-def events(symbol: str, days: int):
-    bars = fetch_bars(symbol, AssetClass.EQUITY, Timeframe.D1, limit=10_000, days=days)
+def events(bars):
     out = []
     for i in range(21, len(bars) - max(HORIZONS)):
         prev, bar = bars[i - 1], bars[i]
@@ -98,7 +96,8 @@ def main(argv: list[str]) -> None:
     gap_all = []
     for sym in symbols:
         try:
-            evs, base = events(sym, days)
+            bars = fetch_bars(sym, AssetClass.EQUITY, Timeframe.D1, limit=10_000, days=days)
+            evs, base = events(bars)
         except Exception as e:  # one bad symbol shouldn't end the study
             print(f"{sym}: error {e}")
             continue
@@ -107,7 +106,7 @@ def main(argv: list[str]) -> None:
             kind = classify(sym, ev)
             direction = "up" if ev["move"] > 0 else "down"
             groups[(direction, kind)].append(ev)
-        for g in gap_events(sym, days):
+        for g in gap_events(bars):
             g["kind"] = classify(sym, g, until_hours=9.5)
             gap_all.append(g)
         print(f"{sym}: {len(evs)} events, normal {HOLD_DAYS}-day return {base:+.2f} %")

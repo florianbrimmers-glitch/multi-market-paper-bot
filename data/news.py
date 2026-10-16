@@ -34,7 +34,8 @@ def fetch_news(symbol: str, start: datetime, end: datetime, limit: int = 50) -> 
     items: list[NewsItem] = []
     with httpx.Client(base_url=config.alpaca_data_url(), headers=headers, timeout=30.0) as client:
         while len(items) < limit:
-            for attempt in range(6):  # the data API allows ~200 requests/min; back off on 429
+            time.sleep(0.4)  # stay well below the ~200 requests/min the key shares with the live loop
+            for attempt in range(6):  # back off on 429
                 r = client.get("/v1beta1/news", params=params)
                 if r.status_code != 429:
                     break

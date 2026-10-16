@@ -1,6 +1,7 @@
 """Market data via the Alpaca Data API. Read-only; httpx imported lazily for offline tests."""
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 
 import config
@@ -34,6 +35,17 @@ def latest_price(symbol: str, asset_class: AssetClass) -> float | None:
     return float(trade["p"]) if trade and trade.get("p") else None
 
 
+def _get(client, path: str, params: dict):
+    """GET with back-off on 429: the data API allows ~200 requests/min per key, shared by the live
+    loop and any research run."""
+    for attempt in range(6):
+        r = client.get(path, params=params)
+        if r.status_code != 429:
+            return r
+        time.sleep(2 ** attempt)
+    return r
+
+
 def fetch_bars(symbol: str, asset_class: AssetClass, timeframe: Timeframe, limit: int = 200,
                days: int = 120) -> list[Bar]:
     """Return up to `limit` most-recent bars from the last `days` days, chronological."""
@@ -50,13 +62,13 @@ def fetch_bars(symbol: str, asset_class: AssetClass, timeframe: Timeframe, limit
         # Alpaca pages long ranges (next_page_token) even when `limit` is larger than one page.
         while len(raw) < limit:
             if asset_class == AssetClass.CRYPTO:
-                r = client.get("/v1beta3/crypto/us/bars", params={**params, "symbols": symbol})
+                r = _get(client, "/v1beta3/crypto/us/bars", {**params, "symbols": symbol})
                 r.raise_for_status()
                 body = r.json()
                 raw += (body.get("bars") or {}).get(symbol, [])
             else:
                 # Split/dividend-adjusted: a raw split looks like a crash to every indicator.
-                r = client.get(f"/v2/stocks/{symbol}/bars", params={**params, "feed": "iex", "adjustment": "all"})
+                r = _get(client, f"/v2/stocks/{symbol}/bars", {**params, "feed": "iex", "adjustment": "all"})
                 r.raise_for_status()
                 body = r.json()
                 raw += body.get("bars") or []
