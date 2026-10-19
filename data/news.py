@@ -9,8 +9,10 @@ from datetime import datetime
 import config
 
 MAX_SYMBOLS = 3
-_EARNINGS = re.compile(r"\b(earnings|eps|revenue|results|guidance|outlook|q[1-4]|quarter(ly)?|"
-                       r"beats?|miss(es)?|forecast)\b", re.IGNORECASE)
+# Only words that mean a company's earnings report. Generic ones ("results", "outlook", "beats")
+# also matched clinical-trial news: "Disc Medicine To Host Webcast ... To Discuss Topline Results"
+# triggered an earnings-drift buy of IRON on 2026-10-19.
+_EARNINGS = re.compile(r"\b(earnings|eps|q[1-4]|quarter(ly)?|fiscal|guidance)\b", re.IGNORECASE)
 
 
 @dataclass

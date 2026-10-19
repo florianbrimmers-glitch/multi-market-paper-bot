@@ -12,6 +12,10 @@ def test_earnings_headlines_are_recognised():
     roundup = NewsItem(t, "Crude Oil Moves Higher; Charles Schwab Shares Fall After Q3 Results",
                        ["SCHW", "PAG", "ERIC", "XOM", "CVX"])
     assert not roundup.is_earnings
+    trial = NewsItem(t, "Disc Medicine To Host Webcast On Monday October 19 At 8 AM ET To Discuss Topline Results",
+                     ["IRON"])
+    assert not trial.is_earnings
+    assert NewsItem(t, "Cleveland-Cliffs Q3 2026 Earnings Call Transcript", ["CLF"]).is_earnings
 
 
 def test_study_finds_a_news_jump_and_measures_the_drift(monkeypatch, capsys):
