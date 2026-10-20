@@ -266,3 +266,20 @@ def test_after_a_qqq_stop_spy_still_buys_at_half_size(monkeypatch):
     assert by["QQQ"].action_taken == "skipped:cooldown after stop-out"
     assert by["SPY"].action_taken == "submitted" and "half size" in by["SPY"].plan.reason
     assert set(state.cooldown) == {"QQQ"}
+
+
+def test_manual_close_sells_on_its_day_after_the_open(monkeypatch):
+    import config
+    from models import Order, Side
+    from run_loop import manual_closes
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setattr(config, "MANUAL_CLOSES", [("IRON", "2026-09-25", "Fehlzuordnung")])
+    b = MockBroker()
+    b.set_price("IRON", 78.0)
+    b.submit_order(Order(symbol="IRON", side=Side.BUY, qty=62, stop_loss=75.68))
+    state = BriefState(drift={"IRON": {"entry_on": "2026-09-24", "exit_on": "2026-10-08"}})
+    assert manual_closes(b, state, clock(9, 35, True)) == []           # too soon after the open
+    assert manual_closes(b, state, clock(9, 45, True, day=26)) == []   # wrong day
+    out = manual_closes(b, state, clock(9, 45, True))
+    assert "IRON" not in b.get_positions() and "auf Wunsch geschlossen" in out[0]
+    assert "IRON" in state.own_exits and state.drift == {}

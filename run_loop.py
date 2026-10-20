@@ -26,6 +26,7 @@ from engine import earnings_drift, run_tick
 
 log = logging.getLogger("run_loop")
 BERLIN = ZoneInfo("Europe/Berlin")
+NY = ZoneInfo("America/New_York")
 BAR_CLOSE_DELAY = timedelta(seconds=20)
 
 
@@ -130,6 +131,33 @@ def cooldown_symbols(symbol: str) -> list[str]:
                        if i.correlation_group == group and i.position_symbol != symbol]
 
 
+def manual_closes(broker, state, clock) -> list[str]:
+    """Sell positions listed in config.MANUAL_CLOSES on their date (15+ min after the open)."""
+    import config
+    from models import OrderStatus
+    if not clock.is_open:
+        return []
+    ny = clock.timestamp.astimezone(NY)
+    if (ny - ny.replace(hour=9, minute=30, second=0, microsecond=0)).total_seconds() < 15 * 60:
+        return []
+    positions = broker.get_positions()
+    out = []
+    for sym, day, why in config.MANUAL_CLOSES:
+        if day != ny.date().isoformat() or sym not in positions:
+            continue
+        pos = positions[sym]
+        order = broker.close_position(sym)
+        if order is None or order.status == OrderStatus.REJECTED:
+            out.append(f"- ⚠️ **{sym}** manueller Verkauf FEHLGESCHLAGEN — neuer Versuch beim nächsten Check")
+            continue
+        fill = broker.last_sell_fill(sym, since=clock.timestamp, wait=5.0)
+        out.append(f"- 🔴 **{sym}** verkauft (auf Wunsch geschlossen: {why}) — "
+                   f"{result_text(pos.avg_entry_price, fill)}")
+        state.own_exits.append(sym)
+        state.drift.pop(sym, None)
+    return out
+
+
 def loop_once(broker, state, build=None, publisher=publish, fetch=None,
               notify=lambda body: post_comment(TRADE_LOG_TITLE, body),
               price_of=None, drift=earnings_drift) -> tuple[list, str | None]:
@@ -163,6 +191,7 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     events = stopped + trade_events(records, results)
     state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
     clock = broker.clock()
+    events += manual_closes(broker, state, clock)
     if drift is not None:
         drift.warm_up(clock)
     if drift is not None and drift.is_due(clock, state):

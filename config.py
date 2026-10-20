@@ -145,6 +145,13 @@ DRIFT_MIN_PRICE = 10.0
 DRIFT_MIN_IEX_DOLLARS = 1_000_000  # median daily IEX dollar volume; the top third (large caps) is excluded
 
 
+# One-off closes requested by the user: (symbol, New York date, reason). The loop sells the
+# position in the first tick at least 15 minutes after that day's open and logs the reason.
+MANUAL_CLOSES = [
+    ("IRON", "2026-10-20", "Fehlzuordnung bei Earnings-Drift: Studiendaten statt Quartalszahlen"),
+]
+
+
 def market_filter_pct() -> float:
     """Mean-reversion entries are bought at half size while SPY is down more than this many percent
     since today's open (engine.market_filter). 0 = off."""
