@@ -331,3 +331,24 @@ def test_pending_entry_without_a_sell_is_not_reported_as_stopped():
     b = MockBroker()
     state = BriefState(pending={"XLE": [700, 67.3, "2026-09-25T15:00:00+00:00"]})
     assert stopped_out(state, {}, b) == []
+
+
+def test_stop_out_during_a_long_tick_is_still_reported(monkeypatch):
+    """Regression (2026-10-22): EWG was stopped out while a tick ran for 7 minutes."""
+    from models import Order, Side
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("EWG", 41.62)
+    b.submit_order(Order(symbol="EWG", side=Side.BUY, qty=1175, stop_loss=41.40))
+    state = BriefState(morning="2026-09-25", positions={"EWG": [1175, 41.62]})
+    posted = []
+
+    def fetch(inst):  # the stop fires while the tick is evaluating instruments
+        if inst.symbol == "EWG":
+            b.trigger_stops("EWG", bar_low=41.30)
+        return fx.flat_series()
+
+    loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None, fetch=fetch, notify=posted.append)
+    assert "EWG" in state.cooldown and "EWG" not in state.positions
+    assert posted and "🛑 **EWG**" in posted[0]

@@ -206,15 +206,23 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
     clock = broker.clock()
     events += manual_closes(broker, state, clock)
-    if drift is not None:
-        drift.warm_up(clock)
     if drift is not None and drift.is_due(clock, state):
         try:
             events += drift.run(broker, state, clock)
         except Exception as e:  # noqa: BLE001 — the drift pass must never break the tick
             log.exception("earnings drift pass failed")
             events.append(f"- ⚠️ Earnings-Drift: Prüfung fehlgeschlagen (`{type(e).__name__}: {str(e)[:200]}`)")
-    state.positions = {s: [p.qty, p.avg_entry_price] for s, p in broker.get_positions().items()}
+    final = broker.get_positions()
+    # Stopped out while this tick was running (2026-10-22: EWG's stop fired during a 7-minute tick
+    # and was never reported, so EWG was re-bought without a cooldown).
+    from brief.schedule import BriefState
+    during = BriefState(positions={s: [p.qty, p.avg_entry_price] for s, p in current.items()},
+                        own_exits=state.own_exits)
+    for sym, line in stopped_out(during, final, broker):
+        if sym not in {s for s, _ in closed}:
+            events.append(line)
+            state.cooldown[sym] = cooldown_until(sym, now)
+    state.positions = {s: [p.qty, p.avg_entry_price] for s, p in final.items()}
     # Entries not filled yet: remembered so a fill + stop-out before the next tick is still seen.
     state.pending = {r.symbol.replace("/", ""): [r.plan.qty, r.plan.entry_price, now.isoformat()]
                      for r in records if r.action_taken == "submitted" and r.plan
@@ -231,6 +239,8 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
         publisher(kind, build(kind, broker))
         setattr(state, kind, broker.clock().timestamp.date().isoformat())
         save_state(state)
+    if drift is not None:
+        drift.warm_up(clock)  # slow (whole-market bars): after the tick's own work is done
     return records, kind
 
 
