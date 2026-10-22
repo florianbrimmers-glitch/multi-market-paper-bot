@@ -114,9 +114,13 @@ def test_post_brief_creates_issue_once_then_comments(monkeypatch):
             return httpx.Response(201, json={"number": 8})
         return httpx.Response(201, json={})
 
+    import brief.deliver as deliver
+    monkeypatch.setattr(deliver, "_ISSUE_CACHE", {})
+    monkeypatch.setattr("time.sleep", lambda s: None)
     client = httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler))
     assert post_brief("hello", "night", client=client) is True
-    assert calls == [("GET", "/repos/o/r/issues"), ("POST", "/repos/o/r/issues"),
+    # Looked up twice before creating (a single lookup once missed the existing issue).
+    assert calls == [("GET", "/repos/o/r/issues"), ("GET", "/repos/o/r/issues"), ("POST", "/repos/o/r/issues"),
                      ("POST", "/repos/o/r/issues/8/comments")]
     assert bodies[-1].endswith("@florian")  # the owner is mentioned so GitHub notifies them
 
@@ -283,3 +287,47 @@ def test_manual_close_sells_on_its_day_after_the_open(monkeypatch):
     out = manual_closes(b, state, clock(9, 45, True))
     assert "IRON" not in b.get_positions() and "auf Wunsch geschlossen" in out[0]
     assert "IRON" in state.own_exits and state.drift == {}
+
+
+def test_comments_go_to_the_oldest_issue_with_the_title(monkeypatch):
+    import brief.deliver as deliver
+    from brief.deliver import TRADE_LOG_TITLE, post_comment
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setattr(deliver, "_ISSUE_CACHE", {})
+    posted = []
+
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json=[{"number": 3, "title": TRADE_LOG_TITLE},
+                                             {"number": 2, "title": TRADE_LOG_TITLE}])
+        posted.append(req.url.path)
+        return httpx.Response(201, json={})
+
+    client = httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler))
+    assert post_comment(TRADE_LOG_TITLE, "x", client=client)
+    assert posted == ["/repos/o/r/issues/2/comments"]
+
+
+def test_entry_filled_and_stopped_between_ticks_is_reported_and_cooled_down(monkeypatch):
+    """Regression (2026-10-22): XLK's entry was unfilled when the tick ended, filled, got
+    stopped out before the next tick, and was bought again without a cooldown."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.sell_fills.append(("XLK", 268, 184.15))       # the stop's fill at the broker
+    state = BriefState(morning="2026-09-25", pending={"XLK": [268, 185.12, "2026-09-25T15:00:00+00:00"]})
+    posted = []
+    fetch = lambda inst: fx.flat_then_drop() if inst.symbol == "XLK" else fx.flat_series()
+    recs, _ = loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
+                        fetch=fetch, notify=posted.append)
+    assert "XLK" in state.cooldown
+    assert next(r for r in recs if r.symbol == "XLK").action_taken == "skipped:cooldown after stop-out"
+    assert "zwischen zwei Checks" in posted[0] and "XLK" in posted[0]
+
+
+def test_pending_entry_without_a_sell_is_not_reported_as_stopped():
+    from run_loop import stopped_out
+    b = MockBroker()
+    state = BriefState(pending={"XLE": [700, 67.3, "2026-09-25T15:00:00+00:00"]})
+    assert stopped_out(state, {}, b) == []

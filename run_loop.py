@@ -98,13 +98,27 @@ def _order_symbol(position_symbol: str) -> str:
 def broker_closed_events(state, current: dict, broker=None) -> list[str]:
     """Positions that vanished since the last tick without the bot closing them — i.e. the
     protective stop (or another order at the broker) closed them. The fill is looked up at the
-    broker for the P/L."""
+    broker for the P/L. Also covers entries that had not filled yet when the last tick ended
+    (state.pending) but filled and were stopped out before this one — on 2026-10-22 XLK and XLE
+    went that way unnoticed and were bought again 15 minutes later."""
+    return [line for _, line in stopped_out(state, current, broker)]
+
+
+def stopped_out(state, current: dict, broker=None) -> list[tuple[str, str]]:
     out = []
     for sym, (qty, entry) in state.positions.items():
         if sym not in current and sym not in state.own_exits:
             fill = broker.last_sell_fill(_order_symbol(sym)) if broker else None
-            out.append(f"- 🛑 **{sym}** vom Schutz-Stop beim Broker verkauft: {i18n.qty(qty)} Stück, "
-                       f"Einstieg {i18n.usd(entry)}, {result_text(entry, fill)}")
+            out.append((sym, f"- 🛑 **{sym}** vom Schutz-Stop beim Broker verkauft: {i18n.qty(qty)} Stück, "
+                             f"Einstieg {i18n.usd(entry)}, {result_text(entry, fill)}"))
+    for sym, (qty, entry, since) in state.pending.items():
+        if sym in current or sym in state.positions or sym in state.own_exits or broker is None:
+            continue
+        fill = broker.last_sell_fill(_order_symbol(sym), since=datetime.fromisoformat(since))
+        if fill:  # filled after the last tick and already sold by its stop
+            out.append((sym, f"- 🛑 **{sym}** vom Schutz-Stop beim Broker verkauft (zwischen zwei Checks gekauft "
+                             f"und ausgestoppt): {i18n.qty(fill[0])} Stück, Einstieg ca. {i18n.usd(entry)}, "
+                             f"{result_text(entry, fill)}"))
     return out
 
 
@@ -164,11 +178,11 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     """One tick + trade notifications + a brief if due. Collaborators are injectable for tests."""
     now = datetime.now(timezone.utc)
     current = broker.get_positions()
-    stopped = broker_closed_events(state, current, broker)
+    closed = stopped_out(state, current, broker)
+    stopped = [line for _, line in closed]
     # No immediate re-entry after a stop-out (it re-bought USO in the same tick it was stopped).
-    for sym in state.positions:
-        if sym not in current and sym not in state.own_exits:
-            state.cooldown[sym] = cooldown_until(sym, now)
+    for sym, _ in closed:
+        state.cooldown[sym] = cooldown_until(sym, now)
     state.cooldown = {s: u for s, u in state.cooldown.items() if u > now.isoformat()}
     halved = {p for s in state.cooldown for p in cooldown_symbols(s)[1:]} - set(state.cooldown)
     kwargs = {"blocked": set(state.cooldown), "halved": halved}
@@ -201,6 +215,10 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
             log.exception("earnings drift pass failed")
             events.append(f"- ⚠️ Earnings-Drift: Prüfung fehlgeschlagen (`{type(e).__name__}: {str(e)[:200]}`)")
     state.positions = {s: [p.qty, p.avg_entry_price] for s, p in broker.get_positions().items()}
+    # Entries not filled yet: remembered so a fill + stop-out before the next tick is still seen.
+    state.pending = {r.symbol.replace("/", ""): [r.plan.qty, r.plan.entry_price, now.isoformat()]
+                     for r in records if r.action_taken == "submitted" and r.plan
+                     and r.symbol.replace("/", "") not in state.positions}
     save_state(state)
     if events:
         stamp = datetime.now(BERLIN).strftime("%d.%m.%Y %H:%M Uhr")

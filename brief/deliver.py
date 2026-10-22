@@ -27,6 +27,29 @@ def post_brief(text: str, kind: str, client=None) -> bool:
     return post_comment(ISSUE_TITLE, f"### {heading}\n\n{text}", client)
 
 
+_ISSUE_CACHE: dict[str, int] = {}
+
+
+def _find_issue(client, repo: str, title: str) -> dict | None:
+    """The OLDEST open issue with this title. On 2026-10-22 one lookup came back without the
+    existing Trade-Log issue and a duplicate (#3) was created; looking twice before creating, and
+    always choosing the oldest match, keeps everything in one place."""
+    if title in _ISSUE_CACHE:
+        return {"number": _ISSUE_CACHE[title]}
+    wanted = {title, _OLD_TITLES.get(title, title)}
+    for attempt in range(2):
+        r = client.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100,
+                                                       "sort": "created", "direction": "asc"})
+        r.raise_for_status()
+        matches = [i for i in r.json() if i.get("title") in wanted and "pull_request" not in i]
+        if matches:
+            return min(matches, key=lambda i: i["number"])
+        if attempt == 0:
+            import time
+            time.sleep(3)
+    return None
+
+
 def post_comment(title: str, body: str, client=None) -> bool:
     token, repo = os.environ.get("GITHUB_TOKEN"), os.environ.get("GITHUB_REPOSITORY")
     if not token or not repo:
@@ -37,14 +60,12 @@ def post_comment(title: str, body: str, client=None) -> bool:
     client = client or httpx.Client(base_url=API, timeout=20.0, headers={
         "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
     try:
-        r = client.get(f"/repos/{repo}/issues", params={"state": "open", "per_page": 100})
-        r.raise_for_status()
-        wanted = {title, _OLD_TITLES.get(title, title)}
-        issue = next((i for i in r.json() if i.get("title") in wanted and "pull_request" not in i), None)
+        issue = _find_issue(client, repo, title)
         if issue is None:
             r = client.post(f"/repos/{repo}/issues", json={"title": title, "body": _ISSUE_BODIES.get(title, "")})
             r.raise_for_status()
             issue = r.json()
+        _ISSUE_CACHE[title] = issue["number"]
         # @mention the owner: GitHub doesn't reliably notify watchers about bot comments, but
         # always delivers mentions (web, e-mail, mobile push).
         owner = os.environ.get("NOTIFY_USER") or os.environ.get("GITHUB_REPOSITORY_OWNER")

@@ -31,6 +31,7 @@ class BriefState(BaseModel):
     cooldown: dict[str, str] = {}  # symbol -> ISO time until which re-entry is blocked
     drift: dict[str, dict[str, str]] = {}  # earnings-drift positions: symbol -> {entry_on, exit_on}
     drift_day: str = ""  # New York date of the last earnings-drift pass
+    pending: dict[str, list] = {}  # entries not filled at the end of the last tick: [qty, entry, ISO time]
 
 
 def state_path() -> str:
