@@ -113,12 +113,14 @@ def run_tick(
     price_of: Callable[[Instrument], float | None] | None = None,
     blocked: set[str] | frozenset[str] = frozenset(),
     halved: set[str] | frozenset[str] = frozenset(),
+    force_exit: set[str] | frozenset[str] = frozenset(),
 ) -> list[TradeRecord]:
     """Evaluate every instrument once. `fetch` / `price_of` are injectable for tests.
 
     price_of: live price used for sizing and the stop (defaults to the signal's bar close).
     blocked:  position symbols in a post-stop-out cooldown — no new entries for them.
     halved:   group partners of a stopped-out symbol — entries allowed, at half size.
+    force_exit: positions whose sale failed last tick — sold now even if the exit signal is gone.
     """
     run_id = run_id or uuid.uuid4().hex[:12]
     dry = config.dry_run()
@@ -156,6 +158,9 @@ def run_tick(
                     and (eod_mode == "all" or positions[sym].unrealized_pl > 0)):
                 signal = signal.model_copy(update={"action": Action.EXIT,
                                                    "reason": EOD_REASON})
+            if in_position and sym in force_exit and signal.action != Action.EXIT:
+                signal = signal.model_copy(update={"action": Action.EXIT,
+                                                   "reason": "erneuter Verkaufsversuch nach Fehlschlag"})
             rec.signal = signal
 
             if not signal.is_actionable or (signal.action == Action.EXIT) != in_position:

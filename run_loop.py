@@ -111,6 +111,15 @@ def stopped_out(state, current: dict, broker=None) -> list[tuple[str, str]]:
             fill = broker.last_sell_fill(_order_symbol(sym)) if broker else None
             out.append((sym, f"- 🛑 **{sym}** vom Schutz-Stop beim Broker verkauft: {i18n.qty(qty)} Stück, "
                              f"Einstieg {i18n.usd(entry)}, {result_text(entry, fill)}"))
+    for sym, (qty, entry) in state.positions.items():
+        held = current.get(sym)
+        if held and 0 < held.qty < qty and sym not in state.own_exits:
+            # Part of the position was sold by its stop (2026-10-23: EWG's stop filled 419 of
+            # 1,182 shares at the open while the bot's own sale was cancelling it).
+            fill = broker.last_sell_fill(_order_symbol(sym)) if broker else None
+            out.append((sym, f"- 🛑 **{sym}** teilweise vom Schutz-Stop verkauft: {i18n.qty(qty - held.qty)} von "
+                             f"{i18n.qty(qty)} Stück, Einstieg {i18n.usd(entry)}, "
+                             f"{result_text(entry, (qty - held.qty, fill[1]) if fill else None)}"))
     for sym, (qty, entry, since) in state.pending.items():
         if sym in current or sym in state.positions or sym in state.own_exits or broker is None:
             continue
@@ -185,7 +194,8 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
         state.cooldown[sym] = cooldown_until(sym, now)
     state.cooldown = {s: u for s, u in state.cooldown.items() if u > now.isoformat()}
     halved = {p for s in state.cooldown for p in cooldown_symbols(s)[1:]} - set(state.cooldown)
-    kwargs = {"blocked": set(state.cooldown), "halved": halved}
+    kwargs = {"blocked": set(state.cooldown), "halved": halved,
+              "force_exit": {s for s in state.retry_exit if s in current}}
     if fetch:
         kwargs["fetch"] = fetch
     if price_of is None and fetch is None:
@@ -204,6 +214,9 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
             results[r.symbol] = result_text(pos.avg_entry_price, fill)
     events = stopped + trade_events(records, results)
     state.own_exits = [r.symbol.replace("/", "") for r in records if r.action_taken == "exit"]
+    still_held = broker.get_positions()
+    state.retry_exit = sorted({r.symbol.replace("/", "") for r in records if r.action_taken == "exit_failed"}
+                              | {s for s in state.retry_exit if s in still_held and s not in state.own_exits})
     clock = broker.clock()
     events += manual_closes(broker, state, clock)
     if drift is not None and drift.is_due(clock, state):

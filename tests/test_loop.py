@@ -352,3 +352,31 @@ def test_stop_out_during_a_long_tick_is_still_reported(monkeypatch):
     loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None, fetch=fetch, notify=posted.append)
     assert "EWG" in state.cooldown and "EWG" not in state.positions
     assert posted and "🛑 **EWG**" in posted[0]
+
+
+def test_failed_sale_is_retried_next_tick_without_an_exit_signal(monkeypatch):
+    from models import Order, Side
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(11, 0, True)
+    b.set_price("EWG", 41.0)
+    b.submit_order(Order(symbol="EWG", side=Side.BUY, qty=763, stop_loss=40.6))
+    state = BriefState(morning="2026-09-25", positions={"EWG": [763, 41.0]}, retry_exit=["EWG"])
+    posted = []
+    # Still below the mean: mean reversion itself would keep holding.
+    fetch = lambda inst: fx.flat_then_drop() if inst.symbol == "EWG" else fx.flat_series()
+    recs, _ = loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
+                        fetch=fetch, notify=posted.append)
+    ewg = next(r for r in recs if r.symbol == "EWG")
+    assert ewg.action_taken == "exit" and "erneuter Verkaufsversuch" in ewg.signal.reason
+    assert "EWG" not in b.get_positions() and state.retry_exit == []
+
+
+def test_partial_stop_fill_is_reported():
+    from run_loop import stopped_out
+    from models import Position
+    b = MockBroker()
+    b.sell_fills.append(("EWG", 419, 40.86))
+    state = BriefState(positions={"EWG": [1182, 41.36]})
+    out = stopped_out(state, {"EWG": Position(symbol="EWG", qty=763, avg_entry_price=41.36)}, b)
+    assert out and "teilweise" in out[0][1] and "419 von 1.182" in out[0][1] and "−209,50" in out[0][1]
