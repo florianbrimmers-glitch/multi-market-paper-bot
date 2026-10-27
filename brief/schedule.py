@@ -1,8 +1,10 @@
 """When is a brief due? Driven by the exchange clock, so US daylight-saving shifts are automatic.
 
 - morning: once per trading day, from 45 min before the open (or at the first tick while open)
-- night:   once per trading day, at the first tick after the close — only on days that had a
-           morning brief, so weekends and holidays stay quiet
+- night:   once per trading day, at the first tick from 16:15 New York time — only on days that
+           had a morning brief, so weekends and holidays stay quiet. Not right at the close: the
+           closing-auction prices arrive a few minutes after 16:00, and a brief taken at 16:00
+           showed 98,137 $ while Alpaca showed 98,521 $ eight minutes later (2026-10-27).
 State is a tiny JSON file carried between loop jobs in the Actions cache.
 """
 from __future__ import annotations
@@ -10,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import timedelta
+from datetime import time, timedelta
 
 from pydantic import BaseModel
 
@@ -19,6 +21,7 @@ from models import Clock
 logger = logging.getLogger(__name__)
 
 MORNING_LEAD = timedelta(minutes=45)
+NIGHT_FROM = time(16, 15)  # New York local; closing prices have settled by then
 
 
 class BriefState(BaseModel):
@@ -61,7 +64,8 @@ def brief_due(clock: Clock, state: BriefState) -> str | None:
                   and clock.next_open - clock.timestamp <= MORNING_LEAD)
     if state.morning != today and (clock.is_open or opens_soon):
         return "morning"
-    session_over = not clock.is_open and clock.next_open.date().isoformat() > today
+    session_over = (not clock.is_open and clock.next_open.date().isoformat() > today
+                    and clock.timestamp.time() >= NIGHT_FROM)
     if state.morning == today and state.night != today and session_over:
         return "night"
     return None

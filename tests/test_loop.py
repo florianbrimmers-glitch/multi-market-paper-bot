@@ -380,3 +380,9 @@ def test_partial_stop_fill_is_reported():
     state = BriefState(positions={"EWG": [1182, 41.36]})
     out = stopped_out(state, {"EWG": Position(symbol="EWG", qty=763, avg_entry_price=41.36)}, b)
     assert out and "teilweise" in out[0][1] and "419 von 1.182" in out[0][1] and "−209,50" in out[0][1]
+
+
+def test_night_brief_waits_for_settled_closing_prices():
+    s = BriefState(morning="2026-09-25")
+    assert brief_due(clock(16, 0, False), s) is None      # closing-auction prints still arriving
+    assert brief_due(clock(16, 15, False), s) == "night"
