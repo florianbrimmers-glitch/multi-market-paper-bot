@@ -38,6 +38,29 @@ def trade(bars, start: int, entry: float, hold: int) -> float:
     return (bars[start + hold - 1].close / entry - 1) * 100
 
 
+def managed_trade(bars, start: int, entry: float, hold: int, mode: str) -> float:
+    """10-day hold with a stop that can move up (checked on daily lows, raised on closes):
+    fixed = 3 % below entry; be5 = to the entry once a close is 5 % up; trail3 / trail5 = that far
+    below the highest close so far (never below the initial stop)."""
+    stop = entry * (1 - STOP_PCT / 100)
+    high = entry
+    for b in bars[start:start + hold]:
+        if b.low <= stop:
+            return (min(b.open, stop) / entry - 1) * 100
+        high = max(high, b.close)
+        if mode == "be5" and b.close >= entry * 1.05:
+            stop = max(stop, entry)
+        elif mode == "trail3":
+            stop = max(stop, high * 0.97)
+        elif mode == "trail5":
+            stop = max(stop, high * 0.95)
+    return (bars[start + hold - 1].close / entry - 1) * 100
+
+
+EXIT_MODES = {"fixed": "fester Stop −3 % (jetzt)", "be5": "Stop auf Einstand ab +5 %",
+              "trail3": "Stop 3 % unter Hoch", "trail5": "Stop 5 % unter Hoch"}
+
+
 def main(argv: list[str]) -> None:
     """argv: days [min_move_pct] [min_close_position 0..1] [tiers comma-separated]."""
     days = int(argv[0]) if argv else 730
@@ -94,7 +117,8 @@ def main(argv: list[str]) -> None:
                 tier = tier_of(s)
                 events.append({"day": day, "tier": tier,
                                "c5": trade(b, i + 1, b[i].close, 5), "c10": trade(b, i + 1, b[i].close, 10),
-                               "o5": trade(b, i + 1, b[i + 1].open, 5)})
+                               "o5": trade(b, i + 1, b[i + 1].open, 5),
+                               **{f"x_{m}": managed_trade(b, i + 1, b[i].close, 10, m) for m in EXIT_MODES}})
     print(f"{len(events)} earnings up-move events\n")
 
     def row(name, evs):
@@ -114,6 +138,17 @@ def main(argv: list[str]) -> None:
     print("\nYardstick, same trade (buy at the close, 3 % stop, 5 days) on ordinary days:")
     for tier, vals in base.items():
         print(f"- Liquidität {tier}: {_m(vals):+.2f} % ({len(vals)} samples)")
+    drift = sorted((e for e in events if e["tier"] in ("mittel", "klein")), key=lambda e: e["day"])
+    if drift:
+        h = len(drift) // 2 or 1
+        print(f"\nStop variants, mid + small caps ({len(drift)} trades, buy at the close, 10 days):")
+        print("| Stop | Trade Ø | Treffer | 1. / 2. Hälfte | schlechtester | bester |")
+        print("|---|---|---|---|---|---|")
+        for m, label in EXIT_MODES.items():
+            v = [e[f"x_{m}"] for e in drift]
+            print(f"| {label} | {_m(v):+.2f} % | {_m(x > 0 for x in v) * 100:.0f} % | "
+                  f"{_m(e[f'x_{m}'] for e in drift[:h]):+.2f} / {_m(e[f'x_{m}'] for e in drift[h:]):+.2f} % | "
+                  f"{min(v):+.1f} % | {max(v):+.1f} % |")
     per_month = len(events) / (days / 30.4)
     print(f"\nAbout {per_month:.0f} signals per month.")
     print("Paper/backtest only. Past behaviour is not a prediction of future returns.")

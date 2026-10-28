@@ -49,3 +49,15 @@ def test_market_wide_earnings_study_runs_offline(monkeypatch, capsys):
     study.main(["365"])
     out = capsys.readouterr().out
     assert "3 earnings up-move events" in out and "| alle | 3 |" in out
+
+
+def test_trailing_stop_keeps_part_of_a_run_up():
+    from run_earnings_study import managed_trade
+    day0 = datetime(2026, 1, 5, 5, 0, tzinfo=timezone.utc)
+    closes = [100, 104, 108, 112, 110, 106, 102, 99, 98, 97, 96]   # up 12 %, then gives it all back
+    bars = [Bar(timestamp=day0 + timedelta(days=i), open=c, high=c, low=c - 0.5, close=c, volume=1)
+            for i, c in enumerate(closes)]
+    fixed = managed_trade(bars, 1, 100.0, 10, "fixed")
+    trail = managed_trade(bars, 1, 100.0, 10, "trail3")
+    be = managed_trade(bars, 1, 100.0, 10, "be5")
+    assert fixed < be <= 0 < trail     # be5: out near the entry (the open gapped 1 % below it)
