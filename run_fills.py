@@ -24,9 +24,15 @@ def account_snapshot(broker, day: date) -> list[str]:
     acct = broker.get_account()
     out = [f"Konto jetzt: {i18n.usd(acct.equity)} (Cash {i18n.usd(acct.cash)}, "
            f"Vortag {i18n.usd(acct.last_equity)})"]
+    stops = {o.symbol: o.stop_price for o in broker.get_open_orders()
+             if o.side.value == "sell" and o.stop_price}
     for sym, p in sorted(broker.get_positions().items()):
+        price = p.market_value / p.qty if p.qty else 0.0
+        stop = stops.get(sym)
+        gap = (f", Stop {i18n.usd(stop)} ({i18n.pct((stop / price - 1) * 100)} vom Kurs, "
+               f"Risiko bis Stop {i18n.signed_usd((stop - price) * p.qty)})" if stop and price else ", KEIN STOP")
         out.append(f"- offen **{sym}**: {i18n.qty(p.qty)} Stück, Einstand {i18n.usd(p.avg_entry_price)}, "
-                   f"unrealisiert {i18n.signed_usd(p.unrealized_pl)}")
+                   f"Kurs {i18n.usd(price)}, unrealisiert {i18n.signed_usd(p.unrealized_pl)}{gap}")
     h = broker._client.get("/v2/account/portfolio/history", params={"period": "1W", "timeframe": "1D"})
     h.raise_for_status()
     hist = h.json()
