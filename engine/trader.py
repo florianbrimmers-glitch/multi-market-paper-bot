@@ -66,17 +66,27 @@ def protective_stop_order(inst: Instrument, qty: float, avg_entry: float,
 
 
 def ensure_protective_stops(broker: BrokerAdapter, positions, open_orders: list[Order],
-                            distances: dict[str, float] | None = None) -> list[str]:
+                            distances: dict[str, float] | None = None,
+                            price_of: Callable[[Instrument], float | None] | None = None) -> list[str]:
     """Place a stop for any long position that has no resting sell order. Returns symbols fixed.
-    distances: planned stop distance per symbol (else the MAX_STOP_PCT cap is used)."""
+    distances: planned stop distance per symbol (else the MAX_STOP_PCT cap is used).
+    price_of: live price (only passed while the market is open); a stock already trading below
+    its stop is sold right away — Alpaca rejects such a stop (2026-10-30: XLK after a gap down)."""
     protected = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.SELL}
     fixed: list[str] = []
     for sym, pos in positions.items():
         inst = _BY_POS_SYMBOL.get(sym)
         if inst is None or not pos.is_long or sym in protected:
             continue
-        o = broker.submit_order(protective_stop_order(inst, pos.qty, pos.avg_entry_price,
-                                                      (distances or {}).get(sym)))
+        stop = protective_stop_order(inst, pos.qty, pos.avg_entry_price, (distances or {}).get(sym))
+        price = price_of(inst) if price_of and inst.asset_class != AssetClass.CRYPTO else None
+        if price is not None and price <= stop.stop_price:
+            o = broker.close_position(inst.symbol)
+            if o and o.status != OrderStatus.REJECTED:
+                fixed.append(sym)
+                logger.warning("%s at %s is below its stop %s: sold at market", sym, price, stop.stop_price)
+            continue
+        o = broker.submit_order(stop)
         if o.status != OrderStatus.REJECTED:
             fixed.append(sym)
             logger.warning("Placed missing protective stop for %s @ %s", sym, o.stop_price)
@@ -138,7 +148,10 @@ def run_tick(
     paused_syms = config.paused_symbols()
     market_factor = _market_factor(fetch, price_of)
     if not dry:
-        ensure_protective_stops(broker, positions, open_orders)
+        if ensure_protective_stops(broker, positions, open_orders,
+                                   price_of=price_of if market_open else None):
+            positions = broker.get_positions()
+            open_orders = broker.get_open_orders()
     pending_buys = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.BUY}
     records: list[TradeRecord] = []
 
@@ -183,8 +196,15 @@ def run_tick(
                 rec.action_taken = "skipped:order pending"
 
             elif signal.action == Action.EXIT:
+                stop = next((o.stop_price for o in open_orders if o.side == Side.SELL and o.stop_price
+                             and o.symbol.replace("/", "") == sym), None)
+                price = price_of(inst) if price_of and stop and not crypto else None
                 if dry:
                     rec.action_taken = "skipped:dry_run(exit)"
+                elif price is not None and price <= stop:
+                    # The broker stop is already firing; cancelling it to sell ourselves only loses
+                    # time (2026-10-30 09:30: XLK's stop was cancelled, the close rejected, sold 15 min later).
+                    rec.action_taken = "skipped:stop already triggered"
                 else:
                     order = broker.close_position(inst.symbol)
                     rec.order_id = order.id if order else None

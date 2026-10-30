@@ -159,3 +159,27 @@ def test_failed_exit_is_reported_not_counted_as_exit(tmp_path, monkeypatch):
     gld = next(r for r in recs if r.symbol == "GLD")
     assert gld.action_taken == "exit_failed"
     assert any("FEHLGESCHLAGEN" in line for line in trade_events(recs))
+
+
+def test_safety_net_sells_at_market_when_price_is_already_below_the_stop():
+    """2026-10-30: XLK gapped below its stop; Alpaca rejects a stop above the price."""
+    b = MockBroker()
+    b.set_price("SPY", 100.0)
+    b.submit_order(Order(symbol="SPY", side=Side.BUY, qty=10))
+    b.set_price("SPY", 95.0)
+    positions = b.get_positions()
+    assert ensure_protective_stops(b, positions, [], price_of=lambda inst: 95.0) == ["SPY"]
+    assert "SPY" not in b.get_positions() and not b.resting
+
+
+def test_own_exit_leaves_a_triggered_broker_stop_alone():
+    """2026-10-30 09:30: cancelling XLK's firing stop to sell ourselves failed and cost 15 minutes."""
+    b = MockBroker()
+    b.set_price("SPY", 100.0)
+    b.submit_order(Order(symbol="SPY", side=Side.BUY, qty=10))
+    b.resting.append(Order(symbol="SPY", side=Side.SELL, qty=10, type=OrderType.STOP, stop_price=99.0))
+    b.set_price("SPY", 98.0)
+    spy = next(r for r in run_tick(b, fetch=_fetch(set()), run_id="t", price_of=lambda inst: 98.0)
+               if r.symbol == "SPY")
+    assert spy.action_taken == "skipped:stop already triggered"
+    assert b.resting  # the stop is still there to fill
