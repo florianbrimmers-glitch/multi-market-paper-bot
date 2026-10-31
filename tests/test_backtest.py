@@ -95,3 +95,17 @@ def test_fetch_bars_follows_next_page_token(monkeypatch):
     monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     bars = market_data.fetch_bars("SPY", AssetClass.EQUITY, Timeframe.M15, limit=500)
     assert [b.close for b in bars] == [1, 2] and seen == [None, "p2"]
+
+
+def test_no_new_entry_after_a_stop_out_on_the_same_bar_window():
+    """A stop-out blocks entries for cooldown_bars, and max_stops_per_day blocks the rest of the day."""
+    bars = fx.breakout_with_volume()
+    last = bars[-1]
+    crash = Bar(timestamp=last.timestamp, open=last.close, high=last.close,
+                low=last.close * 0.5, close=last.close * 0.5, volume=1000.0)
+    after = [fx.bar(last.close * 0.5, len(bars) + i) for i in range(1, 4)]
+    free = backtest_symbol("BTC/USD", "momentum_breakout", bars + [crash] + after, crypto=True)
+    held = backtest_symbol("BTC/USD", "momentum_breakout", bars + [crash] + after, crypto=True,
+                           cooldown_bars=10, max_stops_per_day=1)
+    assert held.num_trades <= free.num_trades
+    assert held.trades[0].reason_out == "hard stop hit" and held.num_trades == 1

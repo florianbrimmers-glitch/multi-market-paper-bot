@@ -93,18 +93,23 @@ class BacktestResult:
 def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bool = False,
                     starting_equity: float = 100_000.0, eod_mode: str | None = None,
                     bar_minutes: int | None = None, market_bars: list[Bar] | None = None,
-                    market_filter_pct: float = 0.0) -> BacktestResult:
+                    market_filter_pct: float = 0.0, cooldown_bars: int = 0,
+                    max_stops_per_day: int | None = None) -> BacktestResult:
     """eod_mode (mean reversion on equities): None = no session rules; otherwise the live rules
     (no entries in the first 30 / last 30 minutes) plus 'all' | 'winners' | 'off' at the close.
     bar_minutes: bar length, needed for the session rules.
     market_bars + market_filter_pct: SPY 15-min bars; entries while SPY is down more than the
-    threshold since the open are bought at half size (see engine.market_filter)."""
+    threshold since the open are bought at half size (see engine.market_filter).
+    cooldown_bars: no new entry for this many bars after a stop-out (the live loop uses 6).
+    max_stops_per_day: no new entry on a day that already had this many stop-outs."""
     broker = MockBroker(starting_equity)
     session_rules = eod_mode is not None and not crypto and bar_minutes
     strat = build_strategy(strategy_name, config.STRATEGY_PARAMS)
     res = BacktestResult(symbol, strategy_name, starting_equity, starting_equity)
     open_trade: Trade | None = None
     move = MarketMove(market_bars) if market_bars and market_filter_pct > 0 else None
+    last_stop = -10**9
+    stops_on: dict = {}
 
     for i, bar in enumerate(bars):
         window = bars[: i + 1]
@@ -123,6 +128,8 @@ def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bo
                 open_trade.exit_price = hit[0].filled_price
                 open_trade.reason_out = "hard stop hit"
                 open_trade = None
+                last_stop = i
+                stops_on[bar.timestamp.date()] = stops_on.get(bar.timestamp.date(), 0) + 1
                 broker.set_price(symbol, bar.close)
 
         sig = strat.generate_signal(symbol, window, open_trade is not None)
@@ -135,6 +142,11 @@ def backtest_symbol(symbol: str, strategy_name: str, bars: list[Bar], crypto: bo
             if sig.action == Action.ENTER_LONG and (since_open < config.opening_delay_min()
                                                     or to_close <= config.eod_no_entry_min()):
                 sig.action = Action.HOLD
+        if sig.action == Action.ENTER_LONG and (
+                i - last_stop <= cooldown_bars
+                or (max_stops_per_day is not None
+                    and stops_on.get(bar.timestamp.date(), 0) >= max_stops_per_day)):
+            sig.action = Action.HOLD
         if sig.action == Action.EXIT and open_trade:
             broker.close_position(symbol)
             open_trade.exit_time, open_trade.exit_price = bar.timestamp.isoformat(), bar.close
