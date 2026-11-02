@@ -173,17 +173,18 @@ class AlpacaBroker(BrokerAdapter):
             else:
                 time.sleep(self.poll_interval)
 
-    def close_position(self, symbol: str, retries: int = 4) -> Order | None:
+    def close_position(self, symbol: str, retries: int = 6) -> Order | None:
         sym = _pos_symbol(symbol)
         pos = self.get_positions().get(sym)
         if not pos:
             return None
         # Cancel resting orders (e.g. the protective stop) so they can't fire after the exit —
-        # and wait for the cancels to settle, otherwise the close is rejected.
+        # and wait for the cancels to settle, otherwise the close is rejected. Right after the open
+        # a cancel can take well over 10 s (30.10. XLK, 02.11. SPY: still held after 15 s).
         ids = [o.id for o in self.get_open_orders() if o.symbol == sym and o.id]
         for oid in ids:
             self._client.delete(f"/v2/orders/{oid}")
-        self._wait_until_done(ids, timeout=10.0)
+        self._wait_until_done(ids, timeout=30.0)
         for attempt in range(retries):
             r = self._client.delete(f"/v2/positions/{sym}")
             if r.status_code < 400:
@@ -192,5 +193,5 @@ class AlpacaBroker(BrokerAdapter):
                          retries, r.text)
             if r.status_code != 403:
                 break
-            time.sleep(self.poll_interval * 2)
+            time.sleep(self.poll_interval * 10)
         return Order(symbol=symbol, side=Side.SELL, qty=pos.qty, status=OrderStatus.REJECTED)
