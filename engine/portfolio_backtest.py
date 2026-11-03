@@ -22,8 +22,11 @@ class PortfolioResult:
 
 
 def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting_equity: float = 100_000.0,
-                       group_of: dict[str, str | None] | None = None) -> PortfolioResult:
-    """max_exposure: gross long value allowed, as a multiple of equity (Alpaca intraday ~4)."""
+                       group_of: dict[str, str | None] | None = None, late_exposure: float | None = None,
+                       late_minutes: float = 120) -> PortfolioResult:
+    """max_exposure: gross long value allowed, as a multiple of equity (Alpaca intraday ~4).
+    late_exposure: a lower cap for entries in the last `late_minutes` of the session — those are
+    the positions most likely to be held overnight."""
     group_of = group_of or {}
     strat = build_strategy("mean_reversion", config.STRATEGY_PARAMS)
     res = PortfolioResult()
@@ -65,7 +68,9 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                   and i - last_stop[sym] > COOLDOWN_BARS):
                 eq = equity()
                 gross = sum(p[0] * last[s] for s, p in pos.items())
-                acct = Account(equity=eq, cash=cash, buying_power=max(0.0, max_exposure * eq - gross))
+                cap = (late_exposure if late_exposure is not None and to_close <= late_minutes
+                       else max_exposure)
+                acct = Account(equity=eq, cash=cash, buying_power=max(0.0, cap * eq - gross))
                 held = {s: Position(symbol=s, qty=p[0], avg_entry_price=p[1]) for s, p in pos.items()}
                 d = size_entry(sym, bar.close, bars[: i + 1], acct, held,
                                correlation_group=group_of.get(sym), group_of=group_of)

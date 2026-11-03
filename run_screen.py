@@ -115,7 +115,7 @@ def main(argv: list[str]) -> None:
         compare_mr_variants(argv[3:], int(argv[1]))
         return
     if argv[0] == "leverage":  # run_screen.py leverage <days> <caps,> <symbols...>
-        compare_leverage(argv[3:], int(argv[1]), [float(x) for x in argv[2].split(",")])
+        compare_leverage(argv[3:], int(argv[1]), argv[2].split(","))
         return
     if argv[0] == "market_filter":  # run_screen.py market_filter <days> <thresholds,> <symbols...>
         compare_market_filter(argv[3:], int(argv[1]), [float(x) for x in argv[2].split(",")])
@@ -218,8 +218,9 @@ def compare_mr_variants(symbols: list[str], days: int) -> None:
         print(f"| {sym} | " + " | ".join(f"{d[v[0]]:+.0f}" for v in variants) + " |")
 
 
-def compare_leverage(symbols: list[str], days: int, caps: list[float]) -> None:
-    """All mean-reversion markets in one account, with total exposure capped at x times equity."""
+def compare_leverage(symbols: list[str], days: int, caps: list[str]) -> None:
+    """All mean-reversion markets in one account, with total exposure capped at x times equity.
+    A cap 'x/y@m' allows x all day but only y for entries in the last m minutes of the session."""
     import config
     from engine.portfolio_backtest import backtest_portfolio
 
@@ -230,8 +231,12 @@ def compare_leverage(symbols: list[str], days: int, caps: list[float]) -> None:
     print("| Obergrenze Gesamtposition | Ergebnis | 1. / 2. Hälfte | Trades | kleiner gekauft | "
           "größter Rückgang | Hebel über Nacht Ø / max | Nächte über 2x | schlechteste Tage |")
     print("|---|---|---|---|---|---|---|---|---|")
-    for cap in caps:
-        r = backtest_portfolio(data, cap, group_of=group_of)
+    for spec in caps:
+        base, _, late = spec.partition("/")
+        late_cap, _, minutes = late.partition("@")
+        r = backtest_portfolio(data, float(base), group_of=group_of,
+                               late_exposure=float(late_cap) if late_cap else None,
+                               late_minutes=float(minutes or 120))
         eq = list(r.equity_by_day.items())
         if not eq:
             continue
@@ -247,7 +252,8 @@ def compare_leverage(symbols: list[str], days: int, caps: list[float]) -> None:
             prev = v
         worst = ", ".join(f"{d[5:]} {v:+.0f}" for v, d in sorted(daily)[:3])
         ov = list(r.overnight_exposure.values()) or [0.0]
-        print(f"| {cap:.1f}x | {end - 100_000:+.0f} $ ({(end / 1000 - 100):+.1f} %) | {mid - 100_000:+.0f} / "
+        label = f"{base}x" + (f", letzte {minutes or 120} Min. {late_cap}x" if late_cap else "")
+        print(f"| {label} | {end - 100_000:+.0f} $ ({(end / 1000 - 100):+.1f} %) | {mid - 100_000:+.0f} / "
               f"{end - mid:+.0f} $ | {len(r.trades)} | {r.smaller_entries} | {dd:.1f} % | "
               f"{sum(ov) / len(ov):.1f} / {max(ov):.1f} | {sum(v > 2 for v in ov)} von {len(ov)} | {worst} |")
 
