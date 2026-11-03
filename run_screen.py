@@ -114,6 +114,9 @@ def main(argv: list[str]) -> None:
     if argv[0] == "mr_variants":  # run_screen.py mr_variants <days> <unused> <symbols...>
         compare_mr_variants(argv[3:], int(argv[1]))
         return
+    if argv[0] == "leverage":  # run_screen.py leverage <days> <caps,> <symbols...>
+        compare_leverage(argv[3:], int(argv[1]), [float(x) for x in argv[2].split(",")])
+        return
     if argv[0] == "market_filter":  # run_screen.py market_filter <days> <thresholds,> <symbols...>
         compare_market_filter(argv[3:], int(argv[1]), [float(x) for x in argv[2].split(",")])
         return
@@ -213,6 +216,40 @@ def compare_mr_variants(symbols: list[str], days: int) -> None:
     print("|---|" + "---|" * len(variants))
     for sym, d in per_sym.items():
         print(f"| {sym} | " + " | ".join(f"{d[v[0]]:+.0f}" for v in variants) + " |")
+
+
+def compare_leverage(symbols: list[str], days: int, caps: list[float]) -> None:
+    """All mean-reversion markets in one account, with total exposure capped at x times equity."""
+    import config
+    from engine.portfolio_backtest import backtest_portfolio
+
+    group_of = {i.symbol: i.correlation_group for i in config.INSTRUMENTS}
+    data = {s: fetch_bars(s, AssetClass.EQUITY, Timeframe.M15, limit=10_000, days=days) for s in symbols}
+    print(f"Mean reversion, {len(symbols)} markets in one account, 15Min, last {days} days "
+          f"(risk/position rules as live, half size for group partners, cooldown 6 bars)\n")
+    print("| Obergrenze Gesamtposition | Ergebnis | 1. / 2. Hälfte | Trades | kleiner gekauft | "
+          "größter Rückgang | Hebel über Nacht Ø / max | Nächte über 2x | schlechteste Tage |")
+    print("|---|---|---|---|---|---|---|---|---|")
+    for cap in caps:
+        r = backtest_portfolio(data, cap, group_of=group_of)
+        eq = list(r.equity_by_day.items())
+        if not eq:
+            continue
+        end = eq[-1][1]
+        mid = eq[len(eq) // 2][1]
+        peak = dd = 0.0
+        prev = 100_000.0
+        daily = []
+        for d, v in eq:
+            peak = max(peak, v)
+            dd = max(dd, (peak - v) / peak * 100)
+            daily.append((v - prev, d))
+            prev = v
+        worst = ", ".join(f"{d[5:]} {v:+.0f}" for v, d in sorted(daily)[:3])
+        ov = list(r.overnight_exposure.values()) or [0.0]
+        print(f"| {cap:.1f}x | {end - 100_000:+.0f} $ ({(end / 1000 - 100):+.1f} %) | {mid - 100_000:+.0f} / "
+              f"{end - mid:+.0f} $ | {len(r.trades)} | {r.smaller_entries} | {dd:.1f} % | "
+              f"{sum(ov) / len(ov):.1f} / {max(ov):.1f} | {sum(v > 2 for v in ov)} von {len(ov)} | {worst} |")
 
 
 if __name__ == "__main__":
