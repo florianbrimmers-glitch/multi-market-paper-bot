@@ -167,6 +167,7 @@ def sec_filter(drift: list[dict]) -> None:
     for e in drift:
         f = sec.facts(e["sym"])
         d = e["day"].date() if hasattr(e["day"], "date") else e["day"]
+        e["filer"] = bool(f and f.get("facts", {}).get("us-gaap"))  # files US-GAAP 10-Q/10-K at all
         e["rev"] = yoy_growth(f, REVENUE, d) if f else None
         e["eps"] = yoy_growth(f, EPS, d) if f else None
     groups = [
@@ -178,6 +179,9 @@ def sec_filter(drift: list[dict]) -> None:
         ("EPS gefallen", lambda e: e["eps"] is not None and e["eps"] <= 0),
         ("Umsatz und EPS gestiegen", lambda e: (e["rev"] or 0) > 0 and (e["eps"] or 0) > 0),
         ("keine SEC-Zahlen", lambda e: e["rev"] is None and e["eps"] is None),
+        ("  davon US-Firma (10-Q/10-K), Quartal fehlt", lambda e: e["filer"] and e["rev"] is None and e["eps"] is None),
+        ("  davon kein US-GAAP-Melder (Ausland, ADR, Fonds)", lambda e: not e["filer"]),
+        ("US-GAAP-Melder (live prüfbar)", lambda e: e["filer"]),
     ]
     print(f"\nSEC filter, mid + small caps ({len(drift)} trades, fixed −3 % stop, 10 days):")
     print("| Gruppe | Anzahl | Trade Ø | Treffer | 1. / 2. Hälfte |")
