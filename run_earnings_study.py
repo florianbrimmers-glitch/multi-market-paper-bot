@@ -167,6 +167,10 @@ def sec_filter(drift: list[dict]) -> None:
     for e in drift:
         f = sec.facts(e["sym"])
         d = e["day"].date() if hasattr(e["day"], "date") else e["day"]
+        k8 = sec.results_8k_dates(e["sym"])
+        # filed the evening before (release after the close) or on the day itself
+        e["8k"] = None if k8 is None else any(timedelta(0) <= d - x <= timedelta(days=3) for x in k8
+                                               if x <= d)
         e["filer"] = bool(f and f.get("facts", {}).get("us-gaap"))  # files US-GAAP 10-Q/10-K at all
         e["rev"] = yoy_growth(f, REVENUE, d) if f else None
         e["eps"] = yoy_growth(f, EPS, d) if f else None
@@ -182,6 +186,9 @@ def sec_filter(drift: list[dict]) -> None:
         ("  davon US-Firma (10-Q/10-K), Quartal fehlt", lambda e: e["filer"] and e["rev"] is None and e["eps"] is None),
         ("  davon kein US-GAAP-Melder (Ausland, ADR, Fonds)", lambda e: not e["filer"]),
         ("US-GAAP-Melder (live prüfbar)", lambda e: e["filer"]),
+        ("8-K Ergebnis (2.02) bis 3 Tage vorher (live prüfbar)", lambda e: e["8k"] is True),
+        ("kein 8-K Ergebnis", lambda e: e["8k"] is False),
+        ("SEC unbekannt", lambda e: e["8k"] is None),
     ]
     print(f"\nSEC filter, mid + small caps ({len(drift)} trades, fixed −3 % stop, 10 days):")
     print("| Gruppe | Anzahl | Trade Ø | Treffer | 1. / 2. Hälfte |")

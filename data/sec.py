@@ -25,6 +25,7 @@ class Sec:
         self._pause = pause
         self._ciks: dict[str, int] | None = None
         self._facts: dict[int, dict | None] = {}
+        self._subs: dict[int, dict | None] = {}
 
     def _get(self, url: str) -> dict | None:
         for attempt in range(3):
@@ -50,6 +51,19 @@ class Sec:
         if cik not in self._facts:
             self._facts[cik] = self._get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json")
         return self._facts[cik]
+
+    def results_8k_dates(self, symbol: str) -> list[date] | None:
+        """Filing dates of 8-Ks with item 2.02 ('Results of Operations'), the official earnings
+        release; None if the company is unknown to SEC."""
+        cik = self.cik(symbol)
+        if cik is None:
+            return None
+        if cik not in self._subs:
+            self._subs[cik] = self._get(f"https://data.sec.gov/submissions/CIK{cik:010d}.json")
+        rec = ((self._subs[cik] or {}).get("filings") or {}).get("recent") or {}
+        return [date.fromisoformat(d) for f, d, it in zip(rec.get("form", []), rec.get("filingDate", []),
+                                                          rec.get("items", []))
+                if f.startswith("8-K") and "2.02" in (it or "")]
 
 
 def _quarters(companyfacts: dict, concepts: tuple[str, ...]) -> list[dict]:
