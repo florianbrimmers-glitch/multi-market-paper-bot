@@ -200,7 +200,8 @@ def run(broker, state, clock, universe_fn=build_universe, snapshots_fn=None, new
         night_room -= qty * price
         account.buying_power -= qty * price
         state.drift[sym] = {"entry_on": today.isoformat(),
-                            "exit_on": add_trading_days(today, config.DRIFT_HOLD_DAYS).isoformat()}
+                            "exit_on": add_trading_days(today, config.DRIFT_HOLD_DAYS).isoformat(),
+                            "qty": qty, "price": price}
         events.append(f"- 🟢 **{sym}** gekauft: {i18n.qty(qty)} Stück zu ca. {i18n.usd(price)}, Stop "
                       f"{i18n.usd(stop)} (Earnings-Drift: {reason}; Verkauf spätestens am "
                       f"{date.fromisoformat(state.drift[sym]['exit_on']).strftime('%d.%m.')})")

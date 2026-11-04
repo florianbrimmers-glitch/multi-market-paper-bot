@@ -386,3 +386,30 @@ def test_night_brief_waits_for_settled_closing_prices():
     s = BriefState(morning="2026-09-25")
     assert brief_due(clock(16, 0, False), s) is None      # closing-auction prints still arriving
     assert brief_due(clock(16, 15, False), s) == "night"
+
+
+def test_drift_buy_filled_after_the_tick_is_tracked_as_pending(monkeypatch):
+    """Regression (2026-11-04): KD was bought at 15:45, filled after the tick's position snapshot
+    and was stopped 14 minutes later — never reported."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    b = MockBroker()
+    b.fixed_clock = clock(15, 45, True)
+
+    class Drift:
+        @staticmethod
+        def is_due(clock, state):
+            return True
+
+        @staticmethod
+        def run(broker, state, clock):
+            state.drift["KD"] = {"entry_on": "2026-09-25", "exit_on": "2026-10-09", "qty": 285, "price": 17.43}
+            return ["- 🟢 **KD** gekauft"]
+
+        @staticmethod
+        def warm_up(clock):
+            pass
+
+    state = BriefState(morning="2026-09-25")
+    loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
+              fetch=lambda inst: fx.flat_series(), notify=lambda t: None, drift=Drift)
+    assert state.pending["KD"][:2] == [285, 17.43]

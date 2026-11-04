@@ -97,6 +97,10 @@ def _order_symbol(position_symbol: str) -> str:
     return inst.symbol if inst else position_symbol
 
 
+def today_ny(now: datetime) -> str:
+    return now.astimezone(NY).date().isoformat()
+
+
 def broker_closed_events(state, current: dict, broker=None) -> list[str]:
     """Positions that vanished since the last tick without the bot closing them — i.e. the
     protective stop (or another order at the broker) closed them. The fill is looked up at the
@@ -242,6 +246,11 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
     state.pending = {r.symbol.replace("/", ""): [r.plan.qty, r.plan.entry_price, now.isoformat()]
                      for r in records if r.action_taken == "submitted" and r.plan
                      and r.symbol.replace("/", "") not in state.positions}
+    # Earnings-drift buys of this tick too (2026-11-04: KD filled just after the snapshot and was
+    # stopped 14 minutes later, unreported).
+    for sym, d in state.drift.items():
+        if d.get("entry_on") == today_ny(clock.timestamp) and "qty" in d and sym not in state.positions:
+            state.pending[sym] = [d["qty"], d["price"], now.isoformat()]
     save_state(state)
     if events:
         stamp = datetime.now(BERLIN).strftime("%d.%m.%Y %H:%M Uhr")
