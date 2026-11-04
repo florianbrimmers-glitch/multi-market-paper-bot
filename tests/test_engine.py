@@ -258,3 +258,28 @@ def test_partner_of_a_stopped_symbol_buys_at_half_size(log_path, monkeypatch):
     rec = next(r for r in run_tick(broker, fetch=_fetch(), run_id="t", halved={"SPY"}) if r.symbol == "SPY")
     assert rec.action_taken == "submitted"
     assert rec.plan.qty == pytest.approx(full.plan.qty / 2, abs=1)
+
+
+@pytest.mark.parametrize("minutes_left,capped", [(55.0, True), (120.0, False)])
+def test_last_hour_entries_keep_all_longs_within_twice_equity(log_path, monkeypatch, minutes_left, capped):
+    """2026-11-03: six buys at 15:00 New York left 2.9x equity long overnight."""
+    from models import Order, Side
+    monkeypatch.setenv("DRY_RUN", "false")
+    broker = MockBroker()
+    broker.fixed_clock = _closing_clock(minutes_left)
+    broker.set_price("XLP", 100.0)
+    broker.submit_order(Order(symbol="XLP", side=Side.BUY, qty=1900))  # 190k long on ~100k equity
+    acct = broker.get_account()
+    monkeypatch.setattr(broker, "get_account",
+                        lambda: acct.model_copy(update={"buying_power": 400_000.0}))  # Alpaca-like 4x
+    broker.set_price("SPY", 90.0)
+    fetch = lambda inst: fx.flat_then_drop() if inst.symbol == "SPY" else fx.flat_series()
+    spy = next(r for r in run_tick(broker, fetch=fetch, run_id="t",
+                                   price_of=lambda i: 90.0 if i.symbol == "SPY" else 100.0)
+               if r.symbol == "SPY")
+    assert spy.action_taken == "submitted"
+    room = 2 * acct.equity - 190_000
+    if capped:
+        assert spy.plan.qty * 90.0 <= room and "overnight cap" in spy.plan.reason
+    else:
+        assert spy.plan.qty * 90.0 > room

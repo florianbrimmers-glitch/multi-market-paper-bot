@@ -90,6 +90,10 @@ aber dieselben Unternehmen und Indizes ab.
 - **Positionsgröße nach Volatilität:** Jeder Trade riskiert 0,5 % des Kontos
   (`RISK_PER_TRADE_PCT`). Der Stop-Abstand ergibt sich aus der ATR. Eine Position ist zusätzlich
   auf 50 % des Kontos (`MAX_POSITION_PCT`, bis 13.10.2026: 25 %) und die verfügbare Kaufkraft begrenzt.
+- **Hebel-Grenze über Nacht (seit 04.11.2026):** In der letzten Handelsstunde (`LATE_ENTRY_MIN`, 60)
+  werden Käufe – auch Earnings-Drift – nur so groß, dass alle Positionen zusammen höchstens das
+  Zweifache des Kontos ausmachen (`OVERNIGHT_EXPOSURE_CAP`, 2). Tagsüber gilt nur die Kaufkraft.
+  Backtest (150 Tage, 13 Märkte, ein Konto): kostet ~0,1 % Rendite, Nächte über 2-fach 4 → 1.
 - **Verwandte Märkte (Korrelationsgruppen):** SPY/QQQ/XLK, EWG/DAX und EEM/FXI bewegen sich
   weitgehend gemeinsam. Ist aus einer Gruppe schon ein Markt gekauft, wird ein weiterer mit
   **halber Größe** gekauft statt übersprungen (seit 14.10.2026). So laufen mehr Trades, ohne dass

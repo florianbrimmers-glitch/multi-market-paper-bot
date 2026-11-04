@@ -80,7 +80,9 @@ def trade_events(records, results: dict[str, str] | None = None) -> list[str]:
                        f"Stop {i18n.usd(r.plan.stop_price)} ({strat}: {reason})"
                        + (" — **halbe Größe** (Gesamtmarkt fällt)" if "market sell-off" in r.plan.reason
                           else " — **halbe Größe** (verwandter Markt offen oder kürzlich ausgestoppt)"
-                          if "half size" in r.plan.reason else ""))
+                          if "half size" in r.plan.reason else "")
+                       + (" — **kleiner** (Hebel-Grenze über Nacht: max. 2-fach)"
+                          if "overnight cap" in r.plan.reason else ""))
         elif r.action_taken == "rejected":
             out.append(f"- ⚠️ **{r.symbol}** Kauforder vom Broker abgelehnt ({strat}: {reason})")
         elif r.action_taken == "exit":

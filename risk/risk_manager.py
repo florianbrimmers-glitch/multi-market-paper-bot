@@ -39,6 +39,12 @@ def stop_distance(entry_price: float, bars: list[Bar]) -> float:
     return max(min(a * config.atr_stop_mult(), hard_cap), floor)
 
 
+def overnight_room(equity: float, positions) -> float:
+    """Notional that may still be bought late in the session under the overnight exposure cap."""
+    gross = sum(abs(p.market_value) or abs(p.qty * p.avg_entry_price) for p in positions.values())
+    return max(0.0, config.overnight_exposure_cap() * equity - gross)
+
+
 def size_entry(
     symbol: str,
     entry_price: float,

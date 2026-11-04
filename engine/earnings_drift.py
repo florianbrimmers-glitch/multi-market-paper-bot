@@ -164,13 +164,20 @@ def run(broker, state, clock, universe_fn=build_universe, snapshots_fn=None, new
     account = broker.get_account()
     exposure = sum(abs(positions[s].market_value) for s in state.drift if s in positions)
     room = account.equity * config.DRIFT_MAX_EXPOSURE_PCT - exposure
+    # Drift buys come 15 minutes before the close and are held overnight: the overnight cap applies.
+    from risk.risk_manager import overnight_room
+    night_room = overnight_room(account.equity, positions)
     for sym, q, move in cands:
         heads = [n for n in news.get(sym, []) if n.is_earnings]
         if not heads:
             continue
         price = q["price"]
         qty = account.equity * config.DRIFT_RISK_PCT / (price * config.DRIFT_STOP_PCT)
-        qty = math.floor(min(qty, room / price, account.buying_power * 0.97 / price))
+        qty = math.floor(min(qty, room / price, night_room / price, account.buying_power * 0.97 / price))
+        if qty < 1 and night_room < price:
+            log.info("earnings drift: %s skipped, overnight exposure cap reached", sym)
+            _record(sym, "skipped:overnight cap reached", dry)
+            continue
         if qty < 1:
             log.info("earnings drift: %s skipped, drift budget (%.0f%% of equity) used up",
                      sym, config.DRIFT_MAX_EXPOSURE_PCT * 100)
@@ -190,6 +197,7 @@ def run(broker, state, clock, universe_fn=build_universe, snapshots_fn=None, new
             _record(sym, "rejected", dry)
             continue
         room -= qty * price
+        night_room -= qty * price
         account.buying_power -= qty * price
         state.drift[sym] = {"entry_on": today.isoformat(),
                             "exit_on": add_trading_days(today, config.DRIFT_HOLD_DAYS).isoformat()}

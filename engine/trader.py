@@ -26,6 +26,7 @@ from models import Action, AssetClass, Bar, Order, OrderStatus, OrderType, Posit
 from engine.market_filter import MarketMove
 from engine.market_filter import size_factor as market_size_factor
 from risk import size_entry
+from risk.risk_manager import BUYING_POWER_USE, overnight_room
 from strategies import build_strategy
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,7 @@ def run_tick(
     to_close = (clock.next_close - clock.timestamp).total_seconds() / 60 if market_open else None
     closing_phase = to_close is not None and to_close <= config.eod_no_entry_min()
     flatten_phase = to_close is not None and to_close <= config.eod_flat_min()
+    late_phase = to_close is not None and to_close <= config.late_entry_min()
     eod_mode = config.eod_flat_mode()
     paused = config.paused_strategies()
     paused_syms = config.paused_symbols()
@@ -153,6 +155,7 @@ def run_tick(
             positions = broker.get_positions()
             open_orders = broker.get_open_orders()
     pending_buys = {o.symbol.replace("/", "") for o in open_orders if o.side == Side.BUY}
+    late_room = overnight_room(account.equity, positions) if late_phase else None
     records: list[TradeRecord] = []
 
     for inst in config.INSTRUMENTS:
@@ -217,15 +220,25 @@ def run_tick(
                 held = dict(positions)
                 for s in pending_buys:
                     held.setdefault(s, Position(symbol=s, qty=1, avg_entry_price=0.0))
-                decision = size_entry(
+                capped = late_room is not None and not crypto
+                sizing = dict(
                     symbol=sym, entry_price=(price_of(inst) if price_of else None) or signal.ref_price,
-                    bars=bars, account=account,
-                    positions=held, correlation_group=inst.correlation_group, group_of=_GROUP_OF,
-                    allow_fractional=crypto,
+                    bars=bars, positions=held, correlation_group=inst.correlation_group,
+                    group_of=_GROUP_OF, allow_fractional=crypto,
                     size_factor=min(0.5 if sym in halved else 1.0, mr_factor),
                     size_note=("group partner recently stopped out" if sym in halved
                                else "market sell-off (SPY down since the open)"),
                 )
+                decision = size_entry(account=account, **sizing)
+                if capped and decision.approved:
+                    # Last hour: what is bought now is likely held overnight — keep all longs <= 2x equity.
+                    full = decision.plan.qty
+                    decision = size_entry(account=account.model_copy(update={
+                        "buying_power": min(account.buying_power, late_room / BUYING_POWER_USE)}), **sizing)
+                    if decision.approved and decision.plan.qty < full:
+                        decision.plan.reason += "; overnight cap: smaller"
+                    elif not decision.approved:
+                        decision.reason = "overnight cap reached"
                 rec.plan = decision.plan
                 if not decision.approved:
                     rec.action_taken = f"skipped:{decision.reason}"
@@ -241,6 +254,8 @@ def run_tick(
                     rec.action_taken = "rejected" if order.status == OrderStatus.REJECTED else "submitted"
                     if rec.action_taken == "submitted":
                         pending_buys.add(sym)
+                        if late_room is not None:
+                            late_room -= plan.qty * plan.entry_price
                         # Count the new long so a correlated instrument later in this tick is filtered.
                         positions = broker.get_positions()
                         if crypto and sym in positions:  # no OTO for crypto: protect once filled

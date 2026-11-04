@@ -158,6 +158,18 @@ def market_filter_pct() -> float:
     return _env_float("MARKET_FILTER_PCT", 0.0)
 
 
+def overnight_exposure_cap() -> float:
+    """In the last LATE_ENTRY_MIN minutes of the session, entries are sized so that all long
+    positions together stay at most this multiple of equity (default 2). Earlier in the day the
+    broker's buying power is the only limit. Backtest (150 days, 13 markets): 2x in the last hour
+    cost 0.1 % of return and cut nights above 2x from 4 to 1 (2026-11-03: 2.9x after six buys at 15:00)."""
+    return _env_float("OVERNIGHT_EXPOSURE_CAP", 2.0)
+
+
+def late_entry_min() -> float:
+    return _env_float("LATE_ENTRY_MIN", 60)
+
+
 def max_position_pct() -> float:
     """No single position may exceed this fraction of equity in notional (default 50%). At 25% the cap,
     not the 0.5% risk budget, sized nearly every trade: QQQ 33 @ 747.65 risked ~0.12% of equity."""
