@@ -11,6 +11,7 @@ open, results by liquidity tercile and by half of the period.
 """
 from __future__ import annotations
 
+import os
 import sys
 from collections import defaultdict
 from datetime import timedelta
@@ -115,7 +116,7 @@ def main(argv: list[str]) -> None:
             if any(n.is_earnings for n in news.get(s, [])):
                 b = bars[s]
                 tier = tier_of(s)
-                events.append({"day": day, "tier": tier,
+                events.append({"day": day, "tier": tier, "sym": s,
                                "c5": trade(b, i + 1, b[i].close, 5), "c10": trade(b, i + 1, b[i].close, 10),
                                "o5": trade(b, i + 1, b[i + 1].open, 5),
                                **{f"x_{m}": managed_trade(b, i + 1, b[i].close, 10, m) for m in EXIT_MODES}})
@@ -149,9 +150,48 @@ def main(argv: list[str]) -> None:
             print(f"| {label} | {_m(v):+.2f} % | {_m(x > 0 for x in v) * 100:.0f} % | "
                   f"{_m(e[f'x_{m}'] for e in drift[:h]):+.2f} / {_m(e[f'x_{m}'] for e in drift[h:]):+.2f} % | "
                   f"{min(v):+.1f} % | {max(v):+.1f} % |")
+    if drift and os.environ.get("SEC_USER_AGENT"):
+        sec_filter(drift)
+    elif drift:
+        print("\n(SEC filter skipped: secret SEC_USER_AGENT not set)")
     per_month = len(events) / (days / 30.4)
     print(f"\nAbout {per_month:.0f} signals per month.")
     print("Paper/backtest only. Past behaviour is not a prediction of future returns.")
+
+
+def sec_filter(drift: list[dict]) -> None:
+    """Split the drift trades by the reported numbers (SEC XBRL): revenue / EPS growth vs. a year ago."""
+    from data.sec import EPS, REVENUE, Sec, yoy_growth
+
+    sec = Sec()
+    for e in drift:
+        f = sec.facts(e["sym"])
+        d = e["day"].date() if hasattr(e["day"], "date") else e["day"]
+        e["rev"] = yoy_growth(f, REVENUE, d) if f else None
+        e["eps"] = yoy_growth(f, EPS, d) if f else None
+    groups = [
+        ("alle", lambda e: True),
+        ("Umsatz gewachsen", lambda e: e["rev"] is not None and e["rev"] > 0),
+        ("Umsatz geschrumpft", lambda e: e["rev"] is not None and e["rev"] <= 0),
+        ("Umsatz +10 % oder mehr", lambda e: e["rev"] is not None and e["rev"] >= 10),
+        ("EPS gestiegen", lambda e: e["eps"] is not None and e["eps"] > 0),
+        ("EPS gefallen", lambda e: e["eps"] is not None and e["eps"] <= 0),
+        ("Umsatz und EPS gestiegen", lambda e: (e["rev"] or 0) > 0 and (e["eps"] or 0) > 0),
+        ("keine SEC-Zahlen", lambda e: e["rev"] is None and e["eps"] is None),
+    ]
+    print(f"\nSEC filter, mid + small caps ({len(drift)} trades, fixed −3 % stop, 10 days):")
+    print("| Gruppe | Anzahl | Trade Ø | Treffer | 1. / 2. Hälfte |")
+    print("|---|---|---|---|---|")
+    h_day = drift[len(drift) // 2]["day"]
+    for name, pred in groups:
+        g = [e for e in drift if pred(e)]
+        if not g:
+            continue
+        v = [e["x_fixed"] for e in g]
+        a = [e["x_fixed"] for e in g if e["day"] < h_day]
+        b = [e["x_fixed"] for e in g if e["day"] >= h_day]
+        print(f"| {name} | {len(g)} | {_m(v):+.2f} % | {_m(x > 0 for x in v) * 100:.0f} % | "
+              f"{_m(a):+.2f} / {_m(b):+.2f} % |")
 
 
 if __name__ == "__main__":

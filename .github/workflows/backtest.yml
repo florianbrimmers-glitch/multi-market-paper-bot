@@ -28,6 +28,7 @@ jobs:
     env:
       ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
       ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}  # "Name email" — SEC EDGAR requires it
       STRATEGY: ${{ github.event.inputs.strategy }}
       TIMEFRAME: ${{ github.event.inputs.timeframe }}
       DAYS: ${{ github.event.inputs.days }}
