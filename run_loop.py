@@ -115,6 +115,8 @@ def stopped_out(state, current: dict, broker=None) -> list[tuple[str, str]]:
     for sym, (qty, entry) in state.positions.items():
         if sym not in current and sym not in state.own_exits:
             fill = broker.last_sell_fill(_order_symbol(sym)) if broker else None
+            # The snapshot may have caught the entry half-filled (2026-11-05: XLK 16 of 147 shares).
+            qty = max(qty, fill[0]) if fill else qty
             out.append((sym, f"- 🛑 **{sym}** vom Schutz-Stop beim Broker verkauft: {i18n.qty(qty)} Stück, "
                              f"Einstieg {i18n.usd(entry)}, {result_text(entry, fill)}"))
     for sym, (qty, entry) in state.positions.items():

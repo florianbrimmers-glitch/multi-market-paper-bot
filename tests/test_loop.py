@@ -413,3 +413,13 @@ def test_drift_buy_filled_after_the_tick_is_tracked_as_pending(monkeypatch):
     loop_once(b, state, build=lambda k, _: "x", publisher=lambda k, t: None,
               fetch=lambda inst: fx.flat_series(), notify=lambda t: None, drift=Drift)
     assert state.pending["KD"][:2] == [285, 17.43]
+
+
+def test_stop_out_reports_the_full_sold_quantity_when_the_snapshot_was_half_filled():
+    """Regression (2026-11-05): the tick ended with XLK 16 of 147 shares filled; the stop sold 147."""
+    from run_loop import stopped_out
+    b = MockBroker()
+    b.sell_fills.append(("XLK", 147, 166.93))
+    state = BriefState(positions={"XLK": [16, 168.47]})
+    (sym, line), = stopped_out(state, {}, b)
+    assert sym == "XLK" and "147 Stück" in line
