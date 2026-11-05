@@ -121,6 +121,11 @@ def main(argv: list[str]) -> None:
                                "o5": trade(b, i + 1, b[i + 1].open, 5),
                                **{f"x_{m}": managed_trade(b, i + 1, b[i].close, 10, m) for m in EXIT_MODES}})
     print(f"{len(events)} earnings up-move events\n")
+    if os.environ.get("DRIFT_EVENTS_OUT"):  # for run_screen.py year: the events as JSON
+        import json
+        with open(os.environ["DRIFT_EVENTS_OUT"], "w") as fh:
+            json.dump([{"day": e["day"].isoformat(), "sym": e["sym"], "tier": e["tier"], "ret": e["x_fixed"]}
+                       for e in events], fh)
 
     def row(name, evs):
         evs = sorted(evs, key=lambda e: e["day"])

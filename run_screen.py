@@ -114,6 +114,9 @@ def main(argv: list[str]) -> None:
     if argv[0] == "mr_variants":  # run_screen.py mr_variants <days> <unused> <symbols...>
         compare_mr_variants(argv[3:], int(argv[1]))
         return
+    if argv[0] == "year":  # run_screen.py year <YYYY> <unused> <mean-reversion symbols...>
+        compare_year(int(argv[1]), argv[3:])
+        return
     if argv[0] == "leverage":  # run_screen.py leverage <days> <caps,> <symbols...>
         compare_leverage(argv[3:], int(argv[1]), argv[2].split(","))
         return
@@ -256,6 +259,121 @@ def compare_leverage(symbols: list[str], days: int, caps: list[str]) -> None:
         print(f"| {label} | {end - 100_000:+.0f} $ ({(end / 1000 - 100):+.1f} %) | {mid - 100_000:+.0f} / "
               f"{end - mid:+.0f} $ | {len(r.trades)} | {r.smaller_entries} | {dd:.1f} % | "
               f"{sum(ov) / len(ov):.1f} / {max(ov):.1f} | {sum(v > 2 for v in ov)} von {len(ov)} | {worst} |")
+
+
+def compare_year(year: int, symbols: list[str]) -> None:
+    """The live strategies over one calendar year vs. MSCI World (URTH) at 1x and 2x daily leverage.
+    Mean reversion: all markets in one account (4x intraday, 2x for last-hour entries). Earnings
+    drift: the study's events, 5 % of equity each (0.15 % risk / 3 % stop), at most 10 open,
+    10 days or the stop. Both on 100,000 $, P/L added (shared buying power not modelled)."""
+    import json
+    import os
+    import tempfile
+    from collections import defaultdict
+    from datetime import date, datetime, timedelta, timezone
+
+    import config
+    import run_earnings_study
+    from data.universe import daily_bars
+    from engine.portfolio_backtest import backtest_portfolio
+
+    start, end = date(year, 1, 1), date(year, 12, 31)
+    end_dt = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    lookback = (datetime.now(timezone.utc) - datetime(year - 1, 12, 1, tzinfo=timezone.utc)).days
+    months = [f"{year}-{m:02d}" for m in range(1, 13)]
+
+    # Mean reversion
+    group_of = {i.symbol: i.correlation_group for i in config.INSTRUMENTS}
+    data = {s: fetch_bars(s, AssetClass.EQUITY, Timeframe.M15, limit=60_000,
+                          days=(end_dt - datetime(year - 1, 12, 1, tzinfo=timezone.utc)).days, end=end_dt)
+            for s in symbols}
+    mr = backtest_portfolio(data, 4.0, group_of=group_of, late_exposure=config.overnight_exposure_cap(),
+                            late_minutes=config.late_entry_min())
+    mr_eq = {d: v for d, v in mr.equity_by_day.items() if start.isoformat() <= d <= end.isoformat()}
+    first = min(mr_eq)
+    # December of the year before warms the indicators; the year starts from that equity
+    base_mr = max(((d, v) for d, v in mr.equity_by_day.items() if d < first), default=("", 100_000.0))[1]
+    mr_month = {}
+    for d in sorted(mr_eq):
+        mr_month[d[:7]] = mr_eq[d] - base_mr
+
+    # Earnings drift
+    os.environ.pop("SEC_USER_AGENT", None)
+    out = os.path.join(tempfile.gettempdir(), "drift_events.json")
+    os.environ["DRIFT_EVENTS_OUT"] = out
+    run_earnings_study.main([str(lookback), "6", "0.75", "mittel,klein"])
+    events = sorted((e for e in json.load(open(out)) if str(start) <= e["day"][:10] <= str(end)),
+                    key=lambda e: e["day"])
+    open_until: list[date] = []
+    drift_pl = defaultdict(float)
+    taken = 0
+    for e in events:
+        d = date.fromisoformat(e["day"][:10])
+        open_until = [x for x in open_until if x > d]
+        if len(open_until) >= 10:
+            continue
+        exit_day = d + timedelta(days=14)  # 10 trading days
+        open_until.append(exit_day)
+        taken += 1
+        drift_pl[min(exit_day, end).isoformat()[:7]] += 100_000 * 0.05 * e["ret"] / 100
+    cum, drift_month = 0.0, {}
+    for m in months:
+        cum += drift_pl.get(m, 0.0)
+        drift_month[m] = cum
+
+    # MSCI World (iShares MSCI World ETF, USD), daily-reset leverage; 2x pays interest on the
+    # borrowed half (about 4.3 % a year in 2025) plus ~0.5 % fees
+    urth = [b for b in daily_bars(["URTH"], lookback).get("URTH", [])]
+    closes = [(b.timestamp.date(), b.close) for b in urth if b.timestamp.date() <= end]
+    prev = max((c for c in closes if c[0] < start), key=lambda c: c[0])
+    days_ = [c for c in closes if c[0] >= start]
+    eq1 = eq2 = eq2n = 100_000.0
+    last = prev[1]
+    w1, w2, w2n = {}, {}, {}
+    for d, c in days_:
+        r = c / last - 1
+        last = c
+        eq1 *= 1 + r
+        eq2 *= 1 + 2 * r
+        eq2n *= 1 + 2 * r - (0.043 + 0.005) / 252
+        w1[d.isoformat()[:7]], w2[d.isoformat()[:7]], w2n[d.isoformat()[:7]] = eq1, eq2, eq2n
+
+    def dd(curve):
+        peak, worst = 100_000.0, 0.0
+        for v in curve:
+            peak = max(peak, v)
+            worst = max(worst, (peak - v) / peak * 100)
+        return worst
+
+    print(f"\n{year}: strategies vs. MSCI World (100,000 $ start, USD)\n")
+    print("| Monat | Mean Reversion | Earnings Drift | Bot zusammen | MSCI World 1x | MSCI World 2x | 2x nach Zinsen |")
+    print("|---|---|---|---|---|---|---|")
+    for m in months:
+        if m not in w1:
+            continue
+        mrv = mr_month.get(m, max((v for k, v in mr_month.items() if k <= m), default=0.0))
+        print(f"| {m} | {mrv:+,.0f} $ | {drift_month[m]:+,.0f} $ | {mrv + drift_month[m]:+,.0f} $ | "
+              f"{w1[m] - 1e5:+,.0f} $ | {w2[m] - 1e5:+,.0f} $ | {w2n[m] - 1e5:+,.0f} $ |")
+    mr_curve = [100_000 + (v - base_mr) for _, v in sorted(mr_eq.items())]
+    tot_mr = list(mr_month.values())[-1]
+    tot_dr = drift_month[months[-1]]
+    print(f"\nJahr: Mean Reversion {tot_mr / 1000:+.1f} %, Earnings Drift {tot_dr / 1000:+.1f} % "
+          f"({taken} von {len(events)} Signalen gekauft), Bot zusammen {(tot_mr + tot_dr) / 1000:+.1f} %")
+    print(f"MSCI World 1x {eq1 / 1000 - 100:+.1f} %, 2x {eq2 / 1000 - 100:+.1f} %, "
+          f"2x nach Zinsen/Gebühren {eq2n / 1000 - 100:+.1f} %")
+    print(f"Größter Rückgang: Mean Reversion {dd(mr_curve):.1f} %, MSCI World 1x "
+          f"{dd([100_000 * c / prev[1] for _, c in days_]):.1f} %, MSCI World 2x "
+          f"{dd(list(_lev_curve(prev[1], days_, 2))):.1f} %")
+    print(f"Mean Reversion: {len([t for t in mr.trades if t.entry_time[:4] == str(year)])} Trades, "
+          f"Hebel über Nacht max {max(v for d, v in mr.overnight_exposure.items() if d[:4] == str(year)):.1f}x")
+
+
+def _lev_curve(start_price: float, days_: list, lev: float):
+    eq, last = 100_000.0, start_price
+    for _, c in days_:
+        eq *= 1 + lev * (c / last - 1)
+        last = c
+        yield eq
 
 
 if __name__ == "__main__":

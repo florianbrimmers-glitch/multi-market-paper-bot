@@ -58,16 +58,19 @@ def _get(client, path: str, params: dict, attempts: int = 6):
 
 
 def fetch_bars(symbol: str, asset_class: AssetClass, timeframe: Timeframe, limit: int = 200,
-               days: int = 120) -> list[Bar]:
-    """Return up to `limit` most-recent bars from the last `days` days, chronological."""
+               days: int = 120, end: datetime | None = None) -> list[Bar]:
+    """Return up to `limit` most-recent bars from the last `days` days (before `end`, if given),
+    chronological."""
     import httpx
 
     headers = {"APCA-API-KEY-ID": config.alpaca_api_key(),
                "APCA-API-SECRET-KEY": config.alpaca_api_secret()}
-    start = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    start = ((end or datetime.now(timezone.utc)) - timedelta(days=days)).isoformat()
     # sort=desc + limit returns the newest bars; we reverse to chronological below.
     params: dict[str, object] = {"timeframe": timeframe.value, "start": start,
                                  "limit": min(limit, 10_000), "sort": "desc"}
+    if end is not None:
+        params["end"] = end.isoformat()
     raw: list[dict] = []
     with httpx.Client(base_url=config.alpaca_data_url(), headers=headers, timeout=30.0) as client:
         # Alpaca pages long ranges (next_page_token) even when `limit` is larger than one page.
