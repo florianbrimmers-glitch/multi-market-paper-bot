@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import config
-from engine.backtest import Trade, _session_minutes
+from engine.backtest import _NY, Trade, _session_minutes
 from models import Account, Action, Bar, Position
 from risk import size_entry
 from strategies import build_strategy
@@ -23,10 +23,14 @@ class PortfolioResult:
 
 def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting_equity: float = 100_000.0,
                        group_of: dict[str, str | None] | None = None, late_exposure: float | None = None,
-                       late_minutes: float = 120) -> PortfolioResult:
+                       late_minutes: float = 120, core_closes: dict | None = None, core_pct: float = 0.0,
+                       margin_rate: float = 0.0) -> PortfolioResult:
     """max_exposure: gross long value allowed, as a multiple of equity (Alpaca intraday ~4).
     late_exposure: a lower cap for entries in the last `late_minutes` of the session — those are
-    the positions most likely to be held overnight."""
+    the positions most likely to be held overnight.
+    core_closes {date: close} + core_pct: a permanent index holding (e.g. MSCI World), rebalanced at
+    every close to core_pct x equity; it counts against both exposure caps.
+    margin_rate: yearly interest on a negative cash balance, charged per night (rate / 360)."""
     group_of = group_of or {}
     strat = build_strategy("mean_reversion", config.STRATEGY_PARAMS)
     res = PortfolioResult()
@@ -36,11 +40,30 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
     idx = {s: 0 for s in data}
     last_stop = {s: -10**9 for s in data}
     events = sorted({b.timestamp for bars in data.values() for b in bars})
+    core = {"qty": 0.0, "px": 0.0}
+    closes = sorted((core_closes or {}).items())
+    prev_day = None
 
     def equity() -> float:
-        return cash + sum(p[0] * last[s] for s, p in pos.items())
+        return cash + sum(p[0] * last[s] for s, p in pos.items()) + core["qty"] * core["px"]
+
+    def end_of_day(day) -> None:
+        nonlocal cash
+        if cash < 0 and margin_rate:
+            cash -= -cash * margin_rate / 360
+        if core_pct and closes:
+            px = [c for d, c in closes if d <= day]
+            if px:
+                core["px"] = px[-1]
+                target = core_pct * equity() / core["px"]
+                cash -= (target - core["qty"]) * core["px"]
+                core["qty"] = target
 
     for ts in events:
+        day = ts.astimezone(_NY).date()
+        if prev_day is not None and day != prev_day:
+            end_of_day(prev_day)
+        prev_day = day
         for sym, bars in data.items():
             i = idx[sym]
             if i >= len(bars) or bars[i].timestamp != ts:
@@ -67,7 +90,7 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                   and since_open >= config.opening_delay_min() and to_close > config.eod_no_entry_min()
                   and i - last_stop[sym] > COOLDOWN_BARS):
                 eq = equity()
-                gross = sum(p[0] * last[s] for s, p in pos.items())
+                gross = sum(p[0] * last[s] for s, p in pos.items()) + core["qty"] * core["px"]
                 cap = (late_exposure if late_exposure is not None and to_close <= late_minutes
                        else max_exposure)
                 acct = Account(equity=eq, cash=cash, buying_power=max(0.0, cap * eq - gross))
@@ -90,6 +113,6 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
         res.equity_by_day[day] = eq
         sessions = [_session_minutes(b, 15) for b in [data[s][idx[s] - 1] for s in data if idx[s]]]
         if any(s and s[1] <= 0 for s in sessions) and eq > 0:
-            gross = sum(p[0] * last[s] for s, p in pos.items())
+            gross = sum(p[0] * last[s] for s, p in pos.items()) + core["qty"] * core["px"]
             res.overnight_exposure[day] = gross / eq
     return res

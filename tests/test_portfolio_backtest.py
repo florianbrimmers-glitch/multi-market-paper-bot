@@ -27,3 +27,15 @@ def test_exposure_cap_limits_the_total_position():
     assert gross_capped <= 100_000 * 1.0 + 1e-6 < gross_free
     assert capped.smaller_entries >= 1
     assert max(capped.overnight_exposure.values()) <= 1.0 + 1e-6
+
+
+def test_core_holding_follows_the_index_and_counts_against_the_cap():
+    from datetime import date, timedelta
+    day1 = _session(100.0)  # flat: no mean-reversion trades
+    day2 = [b.model_copy(update={"timestamp": b.timestamp + timedelta(days=1)}) for b in day1]
+    day3 = [b.model_copy(update={"timestamp": b.timestamp + timedelta(days=2)}) for b in day1]
+    closes = {date(2024, 1, 2): 50.0, date(2024, 1, 3): 55.0, date(2024, 1, 4): 55.0}
+    r = backtest_portfolio({"AAA": day1 + day2 + day3}, 4.0, core_closes=closes, core_pct=1.0)
+    eq = list(r.equity_by_day.values())
+    assert round(eq[-1]) == 110_000  # 100 % of equity in the index, which rose 10 %
+    assert max(r.overnight_exposure.values()) >= 0.99

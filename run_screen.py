@@ -117,6 +117,9 @@ def main(argv: list[str]) -> None:
     if argv[0] == "year":  # run_screen.py year <YYYY> <unused> <mean-reversion symbols...>
         compare_year(int(argv[1]), argv[3:])
         return
+    if argv[0] == "core":  # run_screen.py core <years,> <core shares,> <mean-reversion symbols...>
+        compare_core([int(y) for y in argv[1].split(",")], [float(x) for x in argv[2].split(",")], argv[3:])
+        return
     if argv[0] == "leverage":  # run_screen.py leverage <days> <caps,> <symbols...>
         compare_leverage(argv[3:], int(argv[1]), argv[2].split(","))
         return
@@ -366,6 +369,59 @@ def compare_year(year: int, symbols: list[str]) -> None:
           f"{dd(list(_lev_curve(prev[1], days_, 2))):.1f} %")
     print(f"Mean Reversion: {len([t for t in mr.trades if t.entry_time[:4] == str(year)])} Trades, "
           f"Hebel über Nacht max {max(v for d, v in mr.overnight_exposure.items() if d[:4] == str(year)):.1f}x")
+
+
+# Average Fed funds rate per year + 2 % broker spread: interest on a negative cash balance
+MARGIN_RATE = {2022: 0.017 + 0.02, 2023: 0.050 + 0.02, 2024: 0.051 + 0.02, 2025: 0.042 + 0.02}
+
+
+def compare_core(years: list[int], shares: list[float], symbols: list[str]) -> None:
+    """Mean reversion in one account plus a permanent MSCI World holding (URTH) of x times equity,
+    rebalanced daily (1.0 = the same as half the account in a 2x ETF), interest on borrowed cash;
+    the holding counts against the 4x intraday / 2x last-hour caps."""
+    from datetime import datetime, timezone
+
+    import config
+    from data.universe import daily_bars
+    from engine.portfolio_backtest import backtest_portfolio
+
+    group_of = {i.symbol: i.correlation_group for i in config.INSTRUMENTS}
+    lookback = (datetime.now(timezone.utc) - datetime(min(years) - 1, 12, 1, tzinfo=timezone.utc)).days
+    urth = {b.timestamp.date(): b.close for b in daily_bars(["URTH"], lookback).get("URTH", [])}
+    rows = {}
+    for year in years:
+        end_dt = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        data = {s: fetch_bars(s, AssetClass.EQUITY, Timeframe.M15, limit=60_000,
+                              days=(end_dt - datetime(year - 1, 12, 1, tzinfo=timezone.utc)).days, end=end_dt)
+                for s in symbols}
+        for share in shares:
+            r = backtest_portfolio(data, 4.0, group_of=group_of, late_exposure=config.overnight_exposure_cap(),
+                                   late_minutes=config.late_entry_min(), core_closes=urth, core_pct=share,
+                                   margin_rate=MARGIN_RATE.get(year, 0.06))
+            eq = sorted(r.equity_by_day.items())
+            base = max(((d, v) for d, v in eq if d < f"{year}-01-01"), default=("", 100_000.0))[1]
+            curve = [v for d, v in eq if d[:4] == str(year)]
+            peak, dd = base, 0.0
+            for v in curve:
+                peak = max(peak, v)
+                dd = max(dd, (peak - v) / peak * 100)
+            mr_trades = len([t for t in r.trades if t.entry_time[:4] == str(year)])
+            ov = [v for d, v in r.overnight_exposure.items() if d[:4] == str(year)] or [0.0]
+            rows[(year, share)] = (curve[-1] / base - 1) * 100, dd, mr_trades, max(ov), r.smaller_entries
+            print(f"{year} MSCI-Anteil {share:.1f}x: {rows[(year, share)][0]:+.1f} %, Rückgang {dd:.1f} %, "
+                  f"{mr_trades} MR-Trades, Hebel über Nacht max {max(ov):.1f}x, {r.smaller_entries} kleiner gekauft")
+    print("\n| MSCI-World-Anteil | " + " | ".join(str(y) for y in years) + " | zusammen | pro Jahr | "
+          "schlimmster Rückgang | MR-Trades |")
+    print("|---|" + "---|" * (len(years) + 4))
+    for share in shares:
+        total = 1.0
+        for y in years:
+            total *= 1 + rows[(y, share)][0] / 100
+        per_year = total ** (1 / len(years)) - 1
+        label = "nur Mean Reversion" if share == 0 else f"{share:.1f}x Konto (= {share * 50:.0f} % in 2x-ETF)"
+        print(f"| {label} | " + " | ".join(f"{rows[(y, share)][0]:+.1f} %" for y in years) +
+              f" | {(total - 1) * 100:+.0f} % | {per_year * 100:+.1f} % | "
+              f"{max(rows[(y, share)][1] for y in years):.1f} % | {sum(rows[(y, share)][2] for y in years)} |")
 
 
 def _lev_curve(start_price: float, days_: list, lev: float):
