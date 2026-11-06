@@ -24,13 +24,16 @@ class PortfolioResult:
 def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting_equity: float = 100_000.0,
                        group_of: dict[str, str | None] | None = None, late_exposure: float | None = None,
                        late_minutes: float = 120, core_closes: dict | None = None, core_pct: float = 0.0,
-                       margin_rate: float = 0.0) -> PortfolioResult:
+                       margin_rate: float = 0.0, max_entries_per_tick: int | None = None,
+                       max_entries_per_day: int | None = None) -> PortfolioResult:
     """max_exposure: gross long value allowed, as a multiple of equity (Alpaca intraday ~4).
     late_exposure: a lower cap for entries in the last `late_minutes` of the session — those are
     the positions most likely to be held overnight.
     core_closes {date: close} + core_pct: a permanent index holding (e.g. MSCI World), rebalanced at
     every close to core_pct x equity; it counts against both exposure caps.
-    margin_rate: yearly interest on a negative cash balance, charged per night (rate / 360)."""
+    margin_rate: yearly interest on a negative cash balance, charged per night (rate / 360).
+    max_entries_per_tick / max_entries_per_day: at most this many new positions per 15-minute
+    check / per session (in instrument order)."""
     group_of = group_of or {}
     strat = build_strategy("mean_reversion", config.STRATEGY_PARAMS)
     res = PortfolioResult()
@@ -43,6 +46,7 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
     core = {"qty": 0.0, "px": 0.0}
     closes = sorted((core_closes or {}).items())
     prev_day = None
+    day_entries = 0
 
     def equity() -> float:
         return cash + sum(p[0] * last[s] for s, p in pos.items()) + core["qty"] * core["px"]
@@ -63,7 +67,10 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
         day = ts.astimezone(_NY).date()
         if prev_day is not None and day != prev_day:
             end_of_day(prev_day)
+        if day != prev_day:
+            day_entries = 0
         prev_day = day
+        tick_entries = 0
         for sym, bars in data.items():
             i = idx[sym]
             if i >= len(bars) or bars[i].timestamp != ts:
@@ -88,7 +95,9 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                 t.exit_time, t.exit_price, t.reason_out = ts.isoformat(), bar.close, sig.reason
             elif (sig.action == Action.ENTER_LONG and sym not in pos
                   and since_open >= config.opening_delay_min() and to_close > config.eod_no_entry_min()
-                  and i - last_stop[sym] > COOLDOWN_BARS):
+                  and i - last_stop[sym] > COOLDOWN_BARS
+                  and (max_entries_per_tick is None or tick_entries < max_entries_per_tick)
+                  and (max_entries_per_day is None or day_entries < max_entries_per_day)):
                 eq = equity()
                 gross = sum(p[0] * last[s] for s, p in pos.items()) + core["qty"] * core["px"]
                 cap = (late_exposure if late_exposure is not None and to_close <= late_minutes
@@ -107,6 +116,8 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                     res.trades.append(t)
                     pos[sym] = [d.plan.qty, bar.close, d.plan.stop_price, t]
                     cash -= d.plan.qty * bar.close
+                    tick_entries += 1
+                    day_entries += 1
         # record the end-of-day state once all markets have their last bar of the session
         day = ts.date().isoformat()
         eq = equity()

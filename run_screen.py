@@ -117,6 +117,9 @@ def main(argv: list[str]) -> None:
     if argv[0] == "year":  # run_screen.py year <YYYY> <unused> <mean-reversion symbols...>
         compare_year(int(argv[1]), argv[3:])
         return
+    if argv[0] == "limits":  # run_screen.py limits <years,> <specs: -,tick:3,day:5> <symbols...>
+        compare_limits([int(y) for y in argv[1].split(",")], argv[2].split(","), argv[3:])
+        return
     if argv[0] == "core":  # run_screen.py core <years,> <core shares,> <mean-reversion symbols...>
         compare_core([int(y) for y in argv[1].split(",")], [float(x) for x in argv[2].split(",")], argv[3:])
         return
@@ -422,6 +425,57 @@ def compare_core(years: list[int], shares: list[float], symbols: list[str]) -> N
         print(f"| {label} | " + " | ".join(f"{rows[(y, share)][0]:+.1f} %" for y in years) +
               f" | {(total - 1) * 100:+.0f} % | {per_year * 100:+.1f} % | "
               f"{max(rows[(y, share)][1] for y in years):.1f} % | {sum(rows[(y, share)][2] for y in years)} |")
+
+
+def compare_limits(years: list[int], specs: list[str], symbols: list[str]) -> None:
+    """Mean reversion in one account (live caps, margin interest) with at most n new positions per
+    15-minute check ('tick:n') or per session ('day:n'); '-' = no limit (live)."""
+    from datetime import datetime, timezone
+
+    import config
+    from engine.portfolio_backtest import backtest_portfolio
+
+    group_of = {i.symbol: i.correlation_group for i in config.INSTRUMENTS}
+    rows = {}
+    for year in years:
+        end_dt = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        data = {s: fetch_bars(s, AssetClass.EQUITY, Timeframe.M15, limit=60_000,
+                              days=(end_dt - datetime(year - 1, 12, 1, tzinfo=timezone.utc)).days, end=end_dt)
+                for s in symbols}
+        for spec in specs:
+            kind, _, n = spec.partition(":")
+            r = backtest_portfolio(data, 4.0, group_of=group_of, late_exposure=config.overnight_exposure_cap(),
+                                   late_minutes=config.late_entry_min(), margin_rate=MARGIN_RATE.get(year, 0.06),
+                                   max_entries_per_tick=int(n) if kind == "tick" else None,
+                                   max_entries_per_day=int(n) if kind == "day" else None)
+            eq = sorted(r.equity_by_day.items())
+            base = max(((d, v) for d, v in eq if d < f"{year}-01-01"), default=("", 100_000.0))[1]
+            ys = [(d, v) for d, v in eq if d[:4] == str(year)]
+            peak, dd, prev, worst = base, 0.0, base, []
+            for d, v in ys:
+                peak = max(peak, v)
+                dd = max(dd, (peak - v) / peak * 100)
+                worst.append(v - prev)
+                prev = v
+            worst.sort()
+            trades = [t for t in r.trades if t.entry_time[:4] == str(year)]
+            rows[(year, spec)] = ((ys[-1][1] / base - 1) * 100, dd, len(trades), sum(worst[:5]) / 5)
+            print(f"{year} {spec}: {rows[(year, spec)][0]:+.1f} %, Rückgang {dd:.1f} %, {len(trades)} Trades, "
+                  f"Ø 5 schlechteste Tage {rows[(year, spec)][3]:+.0f} $")
+    print("\n| Grenze | " + " | ".join(str(y) for y in years) + " | zusammen | schlimmster Rückgang | "
+          "Ø 5 schlechteste Tage | Trades |")
+    print("|---|" + "---|" * (len(years) + 4))
+    for spec in specs:
+        total = 1.0
+        for y in years:
+            total *= 1 + rows[(y, spec)][0] / 100
+        kind, _, n = spec.partition(":")
+        label = ("keine (jetzt)" if spec == "-" else f"max. {n} neue pro Check" if kind == "tick"
+                 else f"max. {n} neue pro Tag")
+        print(f"| {label} | " + " | ".join(f"{rows[(y, spec)][0]:+.1f} %" for y in years) +
+              f" | {(total - 1) * 100:+.0f} % | {max(rows[(y, spec)][1] for y in years):.1f} % | "
+              f"{sum(rows[(y, spec)][3] for y in years) / len(years):+.0f} $ | "
+              f"{sum(rows[(y, spec)][2] for y in years)} |")
 
 
 def _lev_curve(start_price: float, days_: list, lev: float):

@@ -39,3 +39,9 @@ def test_core_holding_follows_the_index_and_counts_against_the_cap():
     eq = list(r.equity_by_day.values())
     assert round(eq[-1]) == 110_000  # 100 % of equity in the index, which rose 10 %
     assert max(r.overnight_exposure.values()) >= 0.99
+
+
+def test_entry_limit_per_check():
+    data = {s: _session(98.0) for s in ("AAA", "BBB", "CCC", "DDD")}
+    assert len(backtest_portfolio(data, 4.0).trades) > 2
+    assert len(backtest_portfolio(data, 4.0, max_entries_per_tick=2).trades) == 2
