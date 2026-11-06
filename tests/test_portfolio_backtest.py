@@ -44,4 +44,7 @@ def test_core_holding_follows_the_index_and_counts_against_the_cap():
 def test_entry_limit_per_check():
     data = {s: _session(98.0) for s in ("AAA", "BBB", "CCC", "DDD")}
     assert len(backtest_portfolio(data, 4.0).trades) > 2
-    assert len(backtest_portfolio(data, 4.0, max_entries_per_tick=2).trades) == 2
+    from collections import Counter
+    per_tick = Counter(t.entry_time for t in backtest_portfolio(data, 4.0, max_entries_per_tick=2).trades)
+    assert max(per_tick.values()) == 2
+    assert len(backtest_portfolio(data, 4.0, max_entries_per_day=2).trades) == 2
