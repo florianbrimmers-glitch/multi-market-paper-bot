@@ -117,6 +117,9 @@ def main(argv: list[str]) -> None:
     if argv[0] == "year":  # run_screen.py year <YYYY> <unused> <mean-reversion symbols...>
         compare_year(int(argv[1]), argv[3:])
         return
+    if argv[0] == "universe":  # run_screen.py universe <years,> <candidates,> <current symbols...>
+        compare_universe([int(y) for y in argv[1].split(",")], argv[2].split(","), argv[3:])
+        return
     if argv[0] == "limits":  # run_screen.py limits <years,> <specs: -,tick:3,day:5> <symbols...>
         compare_limits([int(y) for y in argv[1].split(",")], argv[2].split(","), argv[3:])
         return
@@ -476,6 +479,83 @@ def compare_limits(years: list[int], specs: list[str], symbols: list[str]) -> No
               f" | {(total - 1) * 100:+.0f} % | {max(rows[(y, spec)][1] for y in years):.1f} % | "
               f"{sum(rows[(y, spec)][3] for y in years) / len(years):+.0f} $ | "
               f"{sum(rows[(y, spec)][2] for y in years)} |")
+
+
+CANDIDATE_GROUPS = {"TLT": "us_bonds", "IEF": "us_bonds", "GLD": "metals", "SLV": "metals",
+                    "XLF": "us_banks", "JPM": "us_banks"}
+
+
+def compare_universe(years: list[int], candidates: list[str], current: list[str]) -> None:
+    """Mean reversion on each candidate alone, then the current markets with the candidates that
+    made money added (one account, live caps, margin interest), and without AVGO."""
+    from datetime import datetime, timezone
+
+    import config
+    from engine.portfolio_backtest import backtest_portfolio
+
+    group_of = {i.symbol: i.correlation_group for i in config.INSTRUMENTS}
+    for sym, g in CANDIDATE_GROUPS.items():
+        group_of.setdefault(sym, g)
+
+    def run(data, year):
+        r = backtest_portfolio(data, 4.0, group_of=group_of, late_exposure=config.overnight_exposure_cap(),
+                               late_minutes=config.late_entry_min(), margin_rate=MARGIN_RATE.get(year, 0.06))
+        eq = sorted(r.equity_by_day.items())
+        base = max(((d, v) for d, v in eq if d < f"{year}-01-01"), default=("", 100_000.0))[1]
+        ys = [(d, v) for d, v in eq if d[:4] == str(year)]
+        peak, dd, prev, days = base, 0.0, base, []
+        for d, v in ys:
+            peak = max(peak, v)
+            dd = max(dd, (peak - v) / peak * 100)
+            days.append(v - prev)
+            prev = v
+        days.sort()
+        trades = [t for t in r.trades if t.entry_time[:4] == str(year)]
+        return (ys[-1][1] / base - 1) * 100, dd, len(trades), sum(days[:5]) / 5
+
+    single, bars = {}, {}
+    for year in years:
+        end_dt = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        span = (end_dt - datetime(year - 1, 12, 1, tzinfo=timezone.utc)).days
+        bars[year] = {s: fetch_bars(s, AssetClass.EQUITY, Timeframe.M15, limit=60_000, days=span, end=end_dt)
+                      for s in current + candidates}
+        for c in candidates:
+            if len(bars[year][c]) > 500:
+                single[(c, year)] = run({c: bars[year][c]}, year)
+    print("Candidates alone (mean reversion, 100,000 $ each):")
+    print("| Markt | " + " | ".join(str(y) for y in years) + " | zusammen | Trades |")
+    print("|---|" + "---|" * (len(years) + 2))
+    good = []
+    for c in candidates:
+        vals = [single.get((c, y)) for y in years]
+        if any(v is None for v in vals):
+            print(f"| {c} | zu wenig Daten |")
+            continue
+        total = 1.0
+        for v in vals:
+            total *= 1 + v[0] / 100
+        if total > 1:
+            good.append(c)
+        print(f"| {c} | " + " | ".join(f"{v[0]:+.1f} %" for v in vals) +
+              f" | {(total - 1) * 100:+.1f} % | {sum(v[2] for v in vals)} |")
+    variants = [("13 Märkte (jetzt)", current),
+                (f"+ {', '.join(good) or '–'}", current + good),
+                ("+ alle Kandidaten", current + candidates),
+                ("ohne AVGO", [s for s in current if s != "AVGO"])]
+    if good:
+        variants.append((f"ohne AVGO + {', '.join(good)}", [s for s in current if s != "AVGO"] + good))
+    print("\nPortfolio (one account):")
+    print("| Märkte | " + " | ".join(str(y) for y in years) + " | zusammen | schlimmster Rückgang | "
+          "Ø 5 schlechteste Tage | Trades |")
+    print("|---|" + "---|" * (len(years) + 4))
+    for name, syms in variants:
+        rows = [run({s: bars[y][s] for s in syms if len(bars[y][s]) > 500}, y) for y in years]
+        total = 1.0
+        for v in rows:
+            total *= 1 + v[0] / 100
+        print(f"| {name} | " + " | ".join(f"{v[0]:+.1f} %" for v in rows) +
+              f" | {(total - 1) * 100:+.0f} % | {max(v[1] for v in rows):.1f} % | "
+              f"{sum(v[3] for v in rows) / len(rows):+.0f} $ | {sum(v[2] for v in rows)} |")
 
 
 def _lev_curve(start_price: float, days_: list, lev: float):
