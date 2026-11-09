@@ -48,3 +48,13 @@ def test_entry_limit_per_check():
     per_tick = Counter(t.entry_time for t in backtest_portfolio(data, 4.0, max_entries_per_tick=2).trades)
     assert max(per_tick.values()) == 2
     assert len(backtest_portfolio(data, 4.0, max_entries_per_day=2).trades) == 2
+
+
+def test_slippage_makes_every_round_trip_cost_money():
+    data = {s: _session(98.0) for s in ("AAA", "BBB")}
+    free = backtest_portfolio(data, 4.0)
+    costly = backtest_portfolio(data, 4.0, slippage_bps=5)
+    assert len(free.trades) == len(costly.trades) > 0
+    for a, b in zip(free.trades, costly.trades):
+        assert round(b.entry_price / a.entry_price, 6) == 1.0005  # bought 5 bps above the bar close
+    assert list(costly.equity_by_day.values())[-1] < list(free.equity_by_day.values())[-1]

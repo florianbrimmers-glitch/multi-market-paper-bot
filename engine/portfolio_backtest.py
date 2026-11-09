@@ -25,7 +25,7 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                        group_of: dict[str, str | None] | None = None, late_exposure: float | None = None,
                        late_minutes: float = 120, core_closes: dict | None = None, core_pct: float = 0.0,
                        margin_rate: float = 0.0, max_entries_per_tick: int | None = None,
-                       max_entries_per_day: int | None = None) -> PortfolioResult:
+                       max_entries_per_day: int | None = None, slippage_bps: float = 0.0) -> PortfolioResult:
     """max_exposure: gross long value allowed, as a multiple of equity (Alpaca intraday ~4).
     late_exposure: a lower cap for entries in the last `late_minutes` of the session — those are
     the positions most likely to be held overnight.
@@ -33,8 +33,11 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
     every close to core_pct x equity; it counts against both exposure caps.
     margin_rate: yearly interest on a negative cash balance, charged per night (rate / 360).
     max_entries_per_tick / max_entries_per_day: at most this many new positions per 15-minute
-    check / per session (in instrument order)."""
+    check / per session (in instrument order).
+    slippage_bps: execution cost per side in basis points of the price (half the bid-ask spread plus
+    slippage): buys fill that much above the bar close, sells and stop fills that much below."""
     group_of = group_of or {}
+    slip = slippage_bps / 10_000
     strat = build_strategy("mean_reversion", config.STRATEGY_PARAMS)
     res = PortfolioResult()
     cash = starting_equity
@@ -83,7 +86,7 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
             last[sym] = bar.close
             if sym in pos and bar.low <= pos[sym][2]:  # stop, a gap fills at the open
                 qty, _, stop, t = pos.pop(sym)
-                fill = min(bar.open, stop)
+                fill = min(bar.open, stop) * (1 - slip)
                 cash += qty * fill
                 t.exit_time, t.exit_price, t.reason_out = ts.isoformat(), fill, "hard stop hit"
                 last_stop[sym] = i
@@ -91,8 +94,9 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
             sig = strat.generate_signal(sym, bars[: i + 1], sym in pos)
             if sig.action == Action.EXIT and sym in pos:
                 qty, _, _, t = pos.pop(sym)
-                cash += qty * bar.close
-                t.exit_time, t.exit_price, t.reason_out = ts.isoformat(), bar.close, sig.reason
+                fill = bar.close * (1 - slip)
+                cash += qty * fill
+                t.exit_time, t.exit_price, t.reason_out = ts.isoformat(), fill, sig.reason
             elif (sig.action == Action.ENTER_LONG and sym not in pos
                   and since_open >= config.opening_delay_min() and to_close > config.eod_no_entry_min()
                   and i - last_stop[sym] > COOLDOWN_BARS
@@ -112,10 +116,11 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                                       correlation_group=group_of.get(sym), group_of=group_of)
                     if free.approved and d.plan.qty < free.plan.qty:
                         res.smaller_entries += 1
-                    t = Trade(sym, ts.isoformat(), bar.close, d.plan.qty)
+                    fill = bar.close * (1 + slip)
+                    t = Trade(sym, ts.isoformat(), fill, d.plan.qty)
                     res.trades.append(t)
                     pos[sym] = [d.plan.qty, bar.close, d.plan.stop_price, t]
-                    cash -= d.plan.qty * bar.close
+                    cash -= d.plan.qty * fill
                     tick_entries += 1
                     day_entries += 1
         # record the end-of-day state once all markets have their last bar of the session

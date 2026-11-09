@@ -117,6 +117,9 @@ def main(argv: list[str]) -> None:
     if argv[0] == "year":  # run_screen.py year <YYYY> <unused> <mean-reversion symbols...>
         compare_year(int(argv[1]), argv[3:])
         return
+    if argv[0] == "series":  # run_screen.py series <YYYY> <slippage bps per side,> <symbols...>
+        print_series(int(argv[1]), [float(x) for x in argv[2].split(",")], argv[3:])
+        return
     if argv[0] == "universe":  # run_screen.py universe <years,> <candidates,> <current symbols...>
         compare_universe([int(y) for y in argv[1].split(",")], argv[2].split(","), argv[3:])
         return
@@ -479,6 +482,56 @@ def compare_limits(years: list[int], specs: list[str], symbols: list[str]) -> No
               f" | {(total - 1) * 100:+.0f} % | {max(rows[(y, spec)][1] for y in years):.1f} % | "
               f"{sum(rows[(y, spec)][3] for y in years) / len(years):+.0f} $ | "
               f"{sum(rows[(y, spec)][2] for y in years)} |")
+
+
+def print_series(year: int, costs: list[float], symbols: list[str]) -> None:
+    """Mean reversion over one calendar year in one account (live caps, margin interest) at several
+    execution-cost levels: the yearly result per level, then the daily equity and every trade as CSV
+    (for the first two levels) — raw material for further analysis."""
+    from datetime import datetime, timezone
+
+    import config
+    from engine.portfolio_backtest import backtest_portfolio
+
+    group_of = {i.symbol: i.correlation_group for i in config.INSTRUMENTS}
+    end_dt = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    data = {s: fetch_bars(s, AssetClass.EQUITY, Timeframe.M15, limit=60_000,
+                          days=(end_dt - datetime(year - 1, 12, 1, tzinfo=timezone.utc)).days, end=end_dt)
+            for s in symbols}
+    print(f"{year}: mean reversion, {len(symbols)} markets, one account; cost = bps per side "
+          f"(buy above / sell below the bar close or stop)")
+    print("| Kosten je Seite | Ergebnis | größter Rückgang | Trades | Treffer | Ø Gewinn je Trade | Ø Positionsgröße |")
+    print("|---|---|---|---|---|---|---|")
+    keep = []
+    for cost in costs:
+        r = backtest_portfolio(data, 4.0, group_of=group_of, late_exposure=config.overnight_exposure_cap(),
+                               late_minutes=config.late_entry_min(), margin_rate=MARGIN_RATE.get(year, 0.06),
+                               slippage_bps=cost)
+        eq = sorted(r.equity_by_day.items())
+        base = max(((d, v) for d, v in eq if d < f"{year}-01-01"), default=("", 100_000.0))[1]
+        ys = [(d, v) for d, v in eq if d[:4] == str(year)]
+        peak, dd = base, 0.0
+        for _, v in ys:
+            peak = max(peak, v)
+            dd = max(dd, (peak - v) / peak * 100)
+        trades = [t for t in r.trades if t.entry_time[:4] == str(year) and t.closed]
+        n = len(trades) or 1
+        print(f"| {cost:g} bps | {(ys[-1][1] / base - 1) * 100:+.1f} % | {dd:.1f} % | {len(trades)} | "
+              f"{sum(t.pnl > 0 for t in trades) / n * 100:.0f} % | {sum(t.pnl for t in trades) / n:+.1f} $ | "
+              f"{sum(t.qty * t.entry_price for t in trades) / n:,.0f} $ |")
+        keep.append((cost, base, ys, trades))
+    for cost, base, ys, trades in keep[:2]:
+        print(f"\n#EQUITY year={year} cost_bps={cost:g} base={base:.2f}")
+        print("date,equity")
+        for d, v in ys:
+            print(f"{d},{v:.2f}")
+        print(f"#TRADES year={year} cost_bps={cost:g}")
+        print("symbol,entry_time,entry_price,qty,exit_time,exit_price,reason,pnl")
+        for t in trades:
+            reason = "stop" if t.reason_out == "hard stop hit" else "signal"
+            print(f"{t.symbol},{t.entry_time},{t.entry_price:.4f},{t.qty:g},{t.exit_time},{t.exit_price:.4f},"
+                  f"{reason},{t.pnl:.2f}")
+        print("#END")
 
 
 CANDIDATE_GROUPS = {"TLT": "us_bonds", "IEF": "us_bonds", "GLD": "metals", "SLV": "metals",
