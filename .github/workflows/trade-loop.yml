@@ -46,6 +46,10 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}
       EOD_FLAT_MODE: ${{ vars.EOD_FLAT_MODE || 'off' }}
+      # Repository variables reach the bot only through this list (tests/test_settings.py checks it
+      # against the README). One that does not exist arrives empty: config.py then uses its default.
+      DRIFT_ENABLED: ${{ vars.DRIFT_ENABLED }}
+      OVERNIGHT_EXPOSURE_CAP: ${{ vars.OVERNIGHT_EXPOSURE_CAP }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4

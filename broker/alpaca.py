@@ -55,9 +55,21 @@ class AlpacaBroker(BrokerAdapter):
                 "key ID and secret must not be swapped.")
         r.raise_for_status()
         d = r.json()
+
+        def opt(key: str) -> float | None:
+            try:
+                return float(d[key])
+            except (KeyError, TypeError, ValueError):
+                return None
+
         return Account(equity=float(d["equity"]), cash=float(d["cash"]),
                        buying_power=float(d["buying_power"]),
-                       last_equity=float(d.get("last_equity") or 0))
+                       last_equity=float(d.get("last_equity") or 0),
+                       long_market_value=opt("long_market_value"),
+                       maintenance_margin=opt("maintenance_margin"),
+                       initial_margin=opt("initial_margin"),
+                       daytrading_buying_power=opt("daytrading_buying_power"),
+                       regt_buying_power=opt("regt_buying_power"), multiplier=opt("multiplier"))
 
     def get_positions(self) -> dict[str, Position]:
         r = self._client.get("/v2/positions")

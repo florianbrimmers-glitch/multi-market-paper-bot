@@ -71,7 +71,8 @@ US-Markt statt einer festen Liste.
   Werte: Trade über 5 Tage +0,6 bis +0,8 % gegen +0,25 % an normalen Tagen, in beiden Hälften des
   Zeitraums positiv. Große Werte zeigten keinen Vorteil. Kauf erst am nächsten Morgen brachte
   kaum noch etwas, deshalb kauft der Bot kurz vor Schluss.
-- **Abschalten:** `DRIFT_ENABLED=false`.
+- **Abschalten:** Repo-Variable `DRIFT_ENABLED` auf `false` setzen. Der Bot kauft dann keine neuen
+  Drift-Titel mehr; offene Positionen behalten ihren Stop und werden wie geplant verkauft.
 
 **Deutsche Werte:** Alpaca hat keinen Zugang zu Xetra oder Frankfurt. Die deutschen Werte sind
 deshalb ihre **US-Notierungen**. Sie werden in USD und zu US-Börsenzeiten gehandelt, bilden
@@ -87,12 +88,15 @@ aber dieselben Unternehmen und Indizes ab.
   - Bitcoin kann bei Alpaca keine OTO-Order nutzen. Der Stop wird deshalb direkt nach der
     Ausführung als Stop-Limit-Order gesetzt.
   - Bei jedem Check gibt eine Sicherheitsprüfung jeder offenen Position ohne Stop sofort einen.
-- **Positionsgröße nach Volatilität:** Jeder Trade riskiert 0,5 % des Kontos
-  (`RISK_PER_TRADE_PCT`). Der Stop-Abstand ergibt sich aus der ATR. Eine Position ist zusätzlich
-  auf 50 % des Kontos (`MAX_POSITION_PCT`, bis 13.10.2026: 25 %) und die verfügbare Kaufkraft begrenzt.
+- **Positionsgröße:** Jede volle Mean-Reversion-Position ist 50 % des Kontos (`MAX_POSITION_PCT`,
+  bis 13.10.2026: 25 %), begrenzt durch die verfügbare Kaufkraft. Der Stop-Abstand ergibt sich aus
+  der ATR und liegt zwischen 0,5 und 1 % des Kurses; der Verlust am Stop beträgt damit 0,25 bis
+  0,5 % des Kontos. Das Risiko-Budget von 0,5 % (`RISK_PER_TRADE_PCT`) bestimmt bei diesen Werten
+  nie die Größe: Es würde erst unter 0,5 % oder bei weiteren Stops greifen.
 - **Hebel-Grenze über Nacht (seit 04.11.2026):** In der letzten Handelsstunde (`LATE_ENTRY_MIN`, 60)
   werden Käufe – auch Earnings-Drift – nur so groß, dass alle Positionen zusammen höchstens das
-  Zweifache des Kontos ausmachen (`OVERNIGHT_EXPOSURE_CAP`, 2). Tagsüber gilt nur die Kaufkraft.
+  Zweifache des Kontos ausmachen (Repo-Variable `OVERNIGHT_EXPOSURE_CAP`, Standard 2). Tagsüber gilt
+  nur die Kaufkraft.
   Backtest (150 Tage, 13 Märkte, ein Konto): kostet ~0,1 % Rendite, Nächte über 2-fach 4 → 1.
 - **Verwandte Märkte (Korrelationsgruppen):** SPY/QQQ/XLK, EWG/DAX und EEM/FXI bewegen sich
   weitgehend gemeinsam. Ist aus einer Gruppe schon ein Markt gekauft, wird ein weiterer mit
@@ -171,8 +175,17 @@ Jeder Check schreibt pro Markt eine JSONL-Zeile nach `trade_decisions.jsonl`, au
 ## Automatischer Betrieb
 
 Im Repo unter Settings diese **Secrets** anlegen: `ALPACA_API_KEY`, `ALPACA_API_SECRET` und
-`ANTHROPIC_API_KEY`. Orders werden erst platziert, wenn die Repo-**Variable** `DRY_RUN` auf
+`ANTHROPIC_API_KEY`. Orders werden erst platziert, wenn die Repo-Variable `DRY_RUN` auf
 `false` steht.
+
+**Repo-Variablen** (Settings → Secrets and variables → Actions → Variables): Der Bot liest nur
+`DRY_RUN`, `EOD_FLAT_MODE`, `DRIFT_ENABLED` und `OVERNIGHT_EXPOSURE_CAP`. Alle anderen Werte in
+dieser Anleitung (zum Beispiel `MAX_POSITION_PCT` oder die pausierten Strategien) stehen in
+`config.py` und werden dort geändert. Eine Variable wird beim Start eines Loop-Jobs gelesen: Eine
+Änderung wirkt also erst mit dem nächsten Job, spätestens nach etwa 5 Std. 40 Min. Wer nicht
+warten will, bricht den laufenden Job unter Actions ab; der nächste startet dann sofort. Ein
+fehlender, leerer oder ungültiger Wert bedeutet „Standard verwenden“. Die geltenden Einstellungen
+stehen in der ersten Zeile des Job-Protokolls (`settings: …`).
 
 **`trade-loop.yml` lässt den Bot rund um die Uhr laufen:**
 - Ein Job macht etwa 5 Std. 40 Min. lang alle 15 Minuten einen Check (`run_loop.py`). Die

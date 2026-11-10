@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import config
 import i18n
 import logbuch
 from brief.deliver import TRADE_LOG_TITLE, post_brief, post_comment
@@ -278,6 +279,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    log.info("settings: %s", config.describe_settings())
     logbuch.prune()
     deadline = datetime.now(timezone.utc) + timedelta(minutes=args.minutes)
     state = load_state()

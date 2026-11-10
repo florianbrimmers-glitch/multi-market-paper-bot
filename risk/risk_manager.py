@@ -3,7 +3,10 @@
 1. Stop distance = ATR_STOP_MULT * ATR, at least MIN_STOP_PCT (0.5%) and never more than
    MAX_STOP_PCT (1%) from entry.
 2. qty = (equity * RISK_PER_TRADE_PCT) / stop distance, capped at MAX_POSITION_PCT of equity
-   in notional and by available buying power.
+   in notional and by available buying power. At the current settings (0.5 % risk, stop at most
+   1 %, cap 50 %) the cap is always the smaller value: every full position is 50 % of equity and
+   the loss at the stop is 0.25 to 0.5 % of equity. The risk budget would only bind below 0.5 %
+   or with wider stops.
 3. A second long in the same correlation group (e.g. QQQ while SPY is held) is bought at half
    size instead of being skipped: more trades running, without doubling one market move.
 """
@@ -91,7 +94,8 @@ def size_entry(
         TradePlan(
             symbol=symbol, side=Side.BUY, qty=qty, entry_price=entry_price,
             stop_price=round(entry_price - dist, 2), risk_amount=qty * dist,
-            reason=f"risk {config.risk_per_trade_pct() * 100:.2f}% of equity, "
+            reason=f"position {qty * entry_price / account.equity * 100:.0f}% of equity, "
+                   f"loss at the stop {qty * dist / account.equity * 100:.2f}% of equity, "
                    f"stop {dist / entry_price * 100:.2f}% away" + "".join(f"; {n}" for n in notes),
         ),
         "; ".join(notes) or "approved",

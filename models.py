@@ -112,10 +112,26 @@ class Account(BaseModel):
     cash: float
     buying_power: float
     last_equity: float = 0.0  # equity at previous close — used for day P&L
+    # Margin figures as the broker reports them; logged per tick to measure how buying power moves
+    # with purchases (the backtest assumes 4 x equity minus the long value, live has less).
+    long_market_value: float | None = None
+    maintenance_margin: float | None = None
+    initial_margin: float | None = None
+    daytrading_buying_power: float | None = None
+    regt_buying_power: float | None = None
+    multiplier: float | None = None
 
     @property
     def day_pl(self) -> float:
         return self.equity - self.last_equity if self.last_equity else 0.0
+
+    def margin_line(self) -> str:
+        """One log line with the margin figures (those the broker did not report are left out)."""
+        fields = {"equity": self.equity, "buying_power": self.buying_power, "cash": self.cash,
+                  "long": self.long_market_value, "maintenance": self.maintenance_margin,
+                  "initial": self.initial_margin, "dtbp": self.daytrading_buying_power,
+                  "regt_bp": self.regt_buying_power, "multiplier": self.multiplier}
+        return " ".join(f"{k}={v:.2f}" for k, v in fields.items() if v is not None)
 
     @property
     def day_pl_pct(self) -> float:

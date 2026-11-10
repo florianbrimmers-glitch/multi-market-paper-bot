@@ -33,11 +33,25 @@ def test_sizing_uses_atr_and_notional_cap():
     assert dec.plan.side == Side.BUY
 
 
-def test_risk_budget_binds_when_stop_is_wide():
+def test_position_cap_sets_the_size_whatever_the_stop():
+    """With 0.5 % risk, a stop of at most 1 % and a 50 % cap, the cap always sizes the trade."""
     wide = [fx.bar(100.0, i, high=110.0, low=90.0) for i in range(20)]
     dec = size_entry("SPY", 100.0, wide, _account(), positions={})
-    # stop capped at $1 -> $500 / $1 = 500 shares (= the 50% cap); risk <= 0.5% of equity
-    assert dec.plan.risk_amount <= 500.0
+    # stop capped at $1 -> $500 / $1 = 500 shares, which equals the 50 % cap
+    assert dec.plan.qty == 500
+    assert dec.plan.risk_amount == pytest.approx(500.0)
+    assert dec.plan.reason.startswith("position 50% of equity, loss at the stop 0.50% of equity, stop 1.00% away")
+    calm = size_entry("SPY", 100.0, fx.flat_series(), _account(), positions={})
+    assert calm.plan.qty == 500  # same size in a calm market, half the loss at the stop
+    assert "loss at the stop 0.25% of equity, stop 0.50% away" in calm.plan.reason
+
+
+def test_risk_budget_sizes_the_trade_only_below_half_a_percent(monkeypatch):
+    monkeypatch.setenv("RISK_PER_TRADE_PCT", "0.0025")
+    wide = [fx.bar(100.0, i, high=110.0, low=90.0) for i in range(20)]
+    dec = size_entry("SPY", 100.0, wide, _account(), positions={})
+    assert dec.plan.qty == 250  # $250 / $1 stop
+    assert dec.plan.risk_amount == pytest.approx(250.0)
 
 
 def test_second_index_long_is_bought_at_half_size():

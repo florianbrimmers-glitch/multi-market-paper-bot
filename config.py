@@ -4,6 +4,8 @@ Nothing here ever touches real money: the Alpaca trading URL is pinned to the pa
 """
 from __future__ import annotations
 
+import logging
+import math
 import os
 
 from pydantic import BaseModel
@@ -17,17 +19,58 @@ ALPACA_PAPER_TRADING_URL = "https://paper-api.alpaca.markets"
 ALPACA_DATA_URL = "https://data.alpaca.markets"
 
 
-def _env_bool(name: str, default: str) -> bool:
-    return os.environ.get(name, default).lower() in ("true", "1", "yes")
+log = logging.getLogger(__name__)
+_warned: set[tuple[str, str]] = set()
+_YES = {"true", "1", "yes", "y", "on", "ja", "an"}
+_NO = {"false", "0", "no", "n", "off", "nein", "aus"}
 
 
-def _env_float(name: str, default: float) -> float:
-    return float(os.environ.get(name, str(default)))
+def _warn_once(name: str, raw: str, what: str) -> None:
+    if (name, raw) not in _warned:
+        _warned.add((name, raw))
+        log.warning("setting %s=%r %s", name, raw, what)
+
+
+def _env(name: str) -> str | None:
+    """The variable without surrounding blanks; None when it is unset or blank. A repository
+    variable that does not exist reaches the job as an empty string — that means 'use the default'."""
+    return (os.environ.get(name) or "").strip() or None
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Yes/no in English or German. Anything else keeps the default (and is logged once)."""
+    raw = _env(name)
+    if raw is None:
+        return default
+    if raw.lower() in _YES:
+        return True
+    if raw.lower() in _NO:
+        return False
+    _warn_once(name, raw, f"is neither yes nor no — using the default ({default})")
+    return default
+
+
+def _env_float(name: str, default: float, lo: float = -math.inf, hi: float = math.inf) -> float:
+    """A number within [lo, hi]; a decimal comma is accepted. A value that is no number or lies
+    outside the range keeps the default (logged once) instead of raising: these settings are read
+    at the top of every tick, where an exception would silently stop all trading."""
+    raw = _env(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw.replace(",", "."))
+    except ValueError:
+        value = math.nan
+    if math.isnan(value) or not lo <= value <= hi:
+        _warn_once(name, raw, f"is not a number between {lo} and {hi} — using the default ({default})")
+        return default
+    return value
 
 
 def dry_run() -> bool:
-    """Default true (safe for local runs); set false to actually place paper orders."""
-    return _env_bool("DRY_RUN", "true")
+    """Paper orders are placed only on an explicit no (false / 0 / no). Unset, blank or anything
+    unrecognised means dry run."""
+    return _env_bool("DRY_RUN", True)
 
 
 def decision_log_path() -> str:
@@ -71,25 +114,25 @@ def anthropic_api_key() -> str:
 # --- Risk parameters ---------------------------------------------------------
 def risk_per_trade_pct() -> float:
     """Fraction of equity risked per trade (default 0.5%)."""
-    return _env_float("RISK_PER_TRADE_PCT", 0.005)
+    return _env_float("RISK_PER_TRADE_PCT", 0.005, 0.0001, 0.02)
 
 
 def max_stop_pct() -> float:
     """Hard stop-loss cap: a stop is never further than this fraction from entry (default 1%)."""
-    return _env_float("MAX_STOP_PCT", 0.01)
+    return _env_float("MAX_STOP_PCT", 0.01, 0.001, 0.2)
 
 
 def min_stop_pct() -> float:
     """Stop floor: a stop is never closer than this fraction to entry (default 0.5%), so normal
     noise doesn't trigger it right away."""
-    return _env_float("MIN_STOP_PCT", 0.005)
+    return _env_float("MIN_STOP_PCT", 0.005, 0.0, 0.2)
 
 
 def opening_delay_min() -> float:
     """Minutes after the US open during which mean reversion opens no new positions (default 30).
     Its lookback still spans the previous session then, so the overnight gap alone would read as
     an oversold signal."""
-    return _env_float("OPENING_DELAY_MIN", 30)
+    return _env_float("OPENING_DELAY_MIN", 30, 0, 390)
 
 
 def eod_flat_mode() -> str:
@@ -101,12 +144,12 @@ def eod_flat_mode() -> str:
 
 def eod_flat_min() -> float:
     """Mean reversion positions are closed once the session has at most this many minutes left."""
-    return _env_float("EOD_FLAT_MIN", 15)
+    return _env_float("EOD_FLAT_MIN", 15, 0, 390)
 
 
 def eod_no_entry_min() -> float:
     """No new mean-reversion entries once the session has at most this many minutes left."""
-    return _env_float("EOD_NO_ENTRY_MIN", 30)
+    return _env_float("EOD_NO_ENTRY_MIN", 30, 0, 390)
 
 
 def paused_strategies() -> set[str]:
@@ -114,24 +157,31 @@ def paused_strategies() -> set[str]:
     Comma-separated; empty = none paused. Default after the 2026-10-12 review: trend following
     (gap stops, no winner) and momentum breakout (crypto fees exceed its typical gain)."""
     raw = os.environ.get("PAUSED_STRATEGIES", "trend_following,momentum_breakout")
-    return {s.strip() for s in raw.split(",") if s.strip()}
+    names = {s.strip().lower().replace("-", "_") for s in raw.split(",") if s.strip()}
+    for unknown in sorted(names - {i.strategy for i in INSTRUMENTS}):
+        _warn_once("PAUSED_STRATEGIES", unknown, "names no strategy of any instrument — it pauses nothing")
+    return names
 
 
 def paused_symbols() -> set[str]:
     """Single instruments that open no new positions (like paused_strategies). Default: DB, which
     lost 2.1 % in the 180-day mean-reversion screen (41 of 72 trades stopped out)."""
     raw = os.environ.get("PAUSED_SYMBOLS", "DB")
-    return {s.strip() for s in raw.split(",") if s.strip()}
+    names = {s.strip().upper() for s in raw.split(",") if s.strip()}
+    for unknown in sorted(names - {i.symbol for i in INSTRUMENTS}):
+        _warn_once("PAUSED_SYMBOLS", unknown, "is no instrument of the bot — it pauses nothing")
+    return names
 
 
 def atr_stop_mult() -> float:
     """Intended stop distance = this multiple of ATR, before the hard cap."""
-    return _env_float("ATR_STOP_MULT", 1.5)
+    return _env_float("ATR_STOP_MULT", 1.5, 0.1, 20)
 
 
 def drift_enabled() -> bool:
-    """Earnings drift (engine/earnings_drift.py) on/off. Default on."""
-    return os.environ.get("DRIFT_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+    """Earnings drift (engine/earnings_drift.py) on/off. Default on. The loop workflow passes the
+    repository variable DRIFT_ENABLED; open drift positions are still managed and sold when off."""
+    return _env_bool("DRIFT_ENABLED", True)
 
 
 DRIFT_RISK_PCT = 0.0015        # risk per earnings-drift trade (a third of mean reversion's 0.5%)
@@ -155,7 +205,7 @@ MANUAL_CLOSES = [
 def market_filter_pct() -> float:
     """Mean-reversion entries are bought at half size while SPY is down more than this many percent
     since today's open (engine.market_filter). 0 = off."""
-    return _env_float("MARKET_FILTER_PCT", 0.0)
+    return _env_float("MARKET_FILTER_PCT", 0.0, 0, 100)
 
 
 def overnight_exposure_cap() -> float:
@@ -163,17 +213,26 @@ def overnight_exposure_cap() -> float:
     positions together stay at most this multiple of equity (default 2). Earlier in the day the
     broker's buying power is the only limit. Backtest (150 days, 13 markets): 2x in the last hour
     cost 0.1 % of return and cut nights above 2x from 4 to 1 (2026-11-03: 2.9x after six buys at 15:00)."""
-    return _env_float("OVERNIGHT_EXPOSURE_CAP", 2.0)
+    return _env_float("OVERNIGHT_EXPOSURE_CAP", 2.0, 0, 4)
 
 
 def late_entry_min() -> float:
-    return _env_float("LATE_ENTRY_MIN", 60)
+    return _env_float("LATE_ENTRY_MIN", 60, 0, 390)
 
 
 def max_position_pct() -> float:
     """No single position may exceed this fraction of equity in notional (default 50%). At 25% the cap,
     not the 0.5% risk budget, sized nearly every trade: QQQ 33 @ 747.65 risked ~0.12% of equity."""
-    return _env_float("MAX_POSITION_PCT", 0.50)
+    return _env_float("MAX_POSITION_PCT", 0.50, 0.01, 1)
+
+
+def describe_settings() -> str:
+    """The settings in force, for one log line at loop start: a repository variable that did not
+    arrive, or a value that was rejected, shows here."""
+    return (f"dry_run={dry_run()} drift_enabled={drift_enabled()} eod_flat_mode={eod_flat_mode()} "
+            f"overnight_exposure_cap={overnight_exposure_cap():g} max_position_pct={max_position_pct():g} "
+            f"risk_per_trade_pct={risk_per_trade_pct():g} "
+            f"paused_strategies={sorted(paused_strategies())} paused_symbols={sorted(paused_symbols())}")
 
 
 # --- Strategy parameters -----------------------------------------------------

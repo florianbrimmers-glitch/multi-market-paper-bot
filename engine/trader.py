@@ -123,6 +123,16 @@ def _market_factor(fetch, price_of) -> float:
     return market_size_factor(move, threshold)
 
 
+def _log_account_after_buy(broker: BrokerAdapter, symbol: str, notional: float) -> None:
+    """Measurement only: how much buying power one purchase uses at the broker. The figure read
+    here is not used for sizing, and a failed read must not disturb the tick."""
+    try:
+        logger.info("account after buying %s for about %.2f: %s", symbol, notional,
+                    broker.get_account().margin_line())
+    except Exception:  # noqa: BLE001
+        logger.warning("could not read the account after buying %s", symbol)
+
+
 def run_tick(
     broker: BrokerAdapter,
     fetch: Callable[[Instrument], list[Bar]] = _fetch,
@@ -157,6 +167,7 @@ def run_tick(
     paused = config.paused_strategies()
     paused_syms = config.paused_symbols()
     market_factor = _market_factor(fetch, price_of)
+    logger.info("account at tick start: %s", account.margin_line())
     if not dry:
         if ensure_protective_stops(broker, positions, open_orders,
                                    price_of=price_of if market_open else None):
@@ -267,6 +278,7 @@ def run_tick(
                         pending_buys.add(sym)
                         if late_room is not None:
                             late_room -= plan.qty * plan.entry_price
+                        _log_account_after_buy(broker, sym, plan.qty * plan.entry_price)
                         # Count the new long so a correlated instrument later in this tick is filtered.
                         positions = broker.get_positions()
                         if crypto and sym in positions:  # no OTO for crypto: protect once filled
