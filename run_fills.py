@@ -128,8 +128,99 @@ def history() -> None:
         prev = eq
 
 
+def _activities(broker, kind: str | None = None) -> list[dict]:
+    """All account activities, oldest first (paged by activity id)."""
+    path = "/v2/account/activities" + (f"/{kind}" if kind else "")
+    out: list[dict] = []
+    token = None
+    while True:
+        params: dict[str, object] = {"direction": "asc", "page_size": 100}
+        if token:
+            params["page_token"] = token
+        r = broker._client.get(path, params=params)
+        r.raise_for_status()
+        page = r.json()
+        out += page
+        if len(page) < 100:
+            return out
+        token = page[-1]["id"]
+
+
+def ledger(fills: list[dict]) -> tuple[list[tuple[str, str, float]], dict[str, tuple[float, float]]]:
+    """Average-cost bookkeeping over executions (oldest first): every sell is booked against the
+    symbol's average cost. Returns [(New York date, symbol, realised $)] and the open lots
+    {symbol: (qty, average cost)}."""
+    lots: dict[str, list[float]] = {}
+    realised: list[tuple[str, str, float]] = []
+    for f in fills:
+        sym, qty, price = f["symbol"].replace("/", ""), float(f["qty"]), float(f["price"])
+        lot = lots.setdefault(sym, [0.0, 0.0])
+        if f["side"] == "buy":
+            lot[1] = (lot[0] * lot[1] + qty * price) / (lot[0] + qty)
+            lot[0] += qty
+        else:
+            day = _parse_ts(f["transaction_time"]).astimezone(NY).date().isoformat()
+            realised.append((day, sym, (price - lot[1]) * qty))
+            lot[0] = max(0.0, lot[0] - qty)
+    return realised, {s: (q, c) for s, (q, c) in lots.items() if q > 1e-9}
+
+
+def pnl(since: str = "2026-10-12") -> None:
+    """Realised and open result by strategy and symbol, from the broker's executions — the
+    Trade-Log is not complete enough for this (partial stops, results never followed up)."""
+    import config
+    with AlpacaBroker() as broker:
+        acts = _activities(broker)
+        positions = broker.get_positions()
+        account = broker.get_account()
+    fills = [a for a in acts if a.get("activity_type") == "FILL"]
+    realised, lots = ledger(fills)
+    mr = {i.position_symbol for i in config.INSTRUMENTS if i.strategy == "mean_reversion"}
+    own = {i.position_symbol for i in config.INSTRUMENTS}
+    group = lambda s: "Mean Reversion" if s in mr else "andere eigene Märkte" if s in own else "Earnings Drift"
+    print(f"Ergebnis nach Strategie (Papiergeld), aus {len(fills)} Ausführungen bei Alpaca\n")
+    print(f"| Strategie | realisiert seit Start | realisiert seit {since[8:]}.{since[5:7]}. | offen (Buchgewinn) | Verkäufe seit {since[8:]}.{since[5:7]}. |")
+    print("|---|---|---|---|---|")
+    tot_all = tot_since = tot_open = 0.0
+    for g in ("Mean Reversion", "Earnings Drift", "andere eigene Märkte"):
+        a = sum(v for d, s, v in realised if group(s) == g)
+        b = [v for d, s, v in realised if group(s) == g and d >= since]
+        o = sum(p.unrealized_pl for s, p in positions.items() if group(s) == g)
+        tot_all, tot_since, tot_open = tot_all + a, tot_since + sum(b), tot_open + o
+        print(f"| {g} | {i18n.signed_usd(a)} | {i18n.signed_usd(sum(b))} | {i18n.signed_usd(o)} | {len(b)} |")
+    print(f"| **Summe** | **{i18n.signed_usd(tot_all)}** | **{i18n.signed_usd(tot_since)}** | **{i18n.signed_usd(tot_open)}** | |")
+    other: dict[str, float] = {}
+    for a in acts:
+        if a.get("activity_type") != "FILL":
+            other[a.get("activity_type") or "?"] = other.get(a.get("activity_type") or "?", 0.0) + float(a.get("net_amount") or 0)
+    print("\nSonstige Buchungen seit Start: " + (", ".join(f"{k} {i18n.signed_usd(v)}" for k, v in sorted(other.items())) or "keine"))
+    start = 100_000.0
+    explained = start + tot_all + tot_open + sum(v for k, v in other.items() if k not in ("JNLC", "CSD"))
+    print(f"Konto jetzt: {i18n.usd(account.equity)}; 100.000 $ + realisiert + offen + sonstige = {i18n.usd(explained)} "
+          f"(Differenz {i18n.signed_usd(account.equity - explained)})")
+    for g in ("Mean Reversion", "Earnings Drift"):
+        per: dict[str, list[float]] = {}
+        for d, s, v in realised:
+            if group(s) == g and d >= since:
+                per.setdefault(s, []).append(v)
+        print(f"\n{g} seit {since[8:]}.{since[5:7]}. nach Markt (realisiert, Anzahl Verkäufe): "
+              + ", ".join(f"{s} {i18n.signed_usd(sum(v))} ({len(v)})" for s, v in sorted(per.items(), key=lambda kv: sum(kv[1]))))
+    by_day: dict[str, dict[str, float]] = {}
+    for d, s, v in realised:
+        if d >= since:
+            by_day.setdefault(d, {}).setdefault(group(s), 0.0)
+            by_day[d][group(s)] += v
+    print("\n| Tag | Mean Reversion | Earnings Drift |")
+    print("|---|---|---|")
+    for d in sorted(by_day):
+        print(f"| {d[8:]}.{d[5:7]}. | {i18n.signed_usd(by_day[d].get('Mean Reversion', 0.0))} | "
+              f"{i18n.signed_usd(by_day[d].get('Earnings Drift', 0.0))} |")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "history":
+    if len(sys.argv) > 1 and sys.argv[1] == "pnl":
+        pnl(*sys.argv[2:3])
+    elif len(sys.argv) > 1 and sys.argv[1] == "history":
         history()
     else:
         main(date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else datetime.now(NY).date())
