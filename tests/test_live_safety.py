@@ -67,7 +67,9 @@ def test_crypto_entry_gets_stop_limit_after_fill():
 
 def test_safety_net_protects_unprotected_position_once():
     b = MockBroker()
-    positions = {"GLD": Position(symbol="GLD", qty=10, avg_entry_price=200.0)}
+    b.set_price("GLD", 200.0)
+    b.submit_order(Order(symbol="GLD", side=Side.BUY, qty=10))
+    positions = b.get_positions()
     assert ensure_protective_stops(b, positions, []) == ["GLD"]
     assert b.resting[0].stop_price == 198.0  # 1% hard cap
     assert ensure_protective_stops(b, positions, b.get_open_orders()) == []
@@ -183,3 +185,76 @@ def test_own_exit_leaves_a_triggered_broker_stop_alone():
                if r.symbol == "SPY")
     assert spy.action_taken == "skipped:stop already triggered"
     assert b.resting  # the stop is still there to fill
+
+
+def test_safety_net_places_no_stop_for_a_position_that_is_already_gone():
+    """A stop that fills between the orders and the positions snapshot must not get a second sell
+    stop: with no shares left it would rest at the broker as an unmanaged short sale."""
+    b = MockBroker()
+    stale = {"GLD": Position(symbol="GLD", qty=10, avg_entry_price=200.0)}  # snapshot from before the fill
+    assert ensure_protective_stops(b, stale, []) == []
+    assert not b.resting
+
+
+def _alpaca_with(handler, monkeypatch):
+    monkeypatch.setenv("ALPACA_API_KEY", "PKTEST")
+    monkeypatch.setenv("ALPACA_API_SECRET", "secret")
+    from broker.alpaca import AlpacaBroker
+    broker = AlpacaBroker()
+    broker.poll_interval = 0
+    broker._client = httpx.Client(base_url=broker.base_url, transport=httpx.MockTransport(handler))
+    return broker
+
+
+def test_alpaca_failed_close_puts_the_cancelled_stop_back(monkeypatch):
+    """Four opening sales failed in October 2026 after their stop had been cancelled: each left the
+    position without any order at the broker until the next tick."""
+    from models import OrderStatus
+    stop = {"id": "s1", "symbol": "EWG", "side": "sell", "qty": "1182", "type": "stop", "stop_price": "41.1"}
+    state = {"cancelled": False}
+    posted = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        path = req.url.path
+        if req.method == "GET" and path == "/v2/positions":
+            return httpx.Response(200, json=[{"symbol": "EWG", "qty": "1182", "avg_entry_price": "41.36"}])
+        if req.method == "GET" and path == "/v2/orders":
+            return httpx.Response(200, json=[] if state["cancelled"] else [stop])
+        if req.method == "DELETE" and path == "/v2/orders/s1":
+            state["cancelled"] = True
+            return httpx.Response(204)
+        if req.method == "GET" and path == "/v2/orders/s1":
+            return httpx.Response(200, json={"status": "canceled"})
+        if req.method == "DELETE" and path == "/v2/positions/EWG":
+            return httpx.Response(403, json={"message": "insufficient qty available for order"})
+        if req.method == "POST" and path == "/v2/orders":
+            posted.append(json.loads(req.content))
+            return httpx.Response(200, json={"id": "s2", "status": "new"})
+        return httpx.Response(404)
+
+    result = _alpaca_with(handler, monkeypatch).close_position("EWG")
+    assert result.status == OrderStatus.REJECTED
+    assert [(o["type"], o["stop_price"], o["qty"], o["side"]) for o in posted] == [("stop", "41.1", "1182.0", "sell")]
+
+
+def test_alpaca_close_of_a_position_that_just_got_stopped_is_not_a_failure(monkeypatch):
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path == "/v2/positions":
+            return httpx.Response(200, json=[{"symbol": "EWG", "qty": "1182", "avg_entry_price": "41.36"}])
+        if req.method == "GET" and req.url.path == "/v2/orders":
+            return httpx.Response(200, json=[])
+        if req.method == "DELETE" and req.url.path == "/v2/positions/EWG":
+            return httpx.Response(404, json={"message": "position does not exist"})
+        return httpx.Response(500)
+
+    assert _alpaca_with(handler, monkeypatch).close_position("EWG") is None
+
+
+def test_exit_on_a_position_that_is_already_gone_is_left_to_the_stop_out_report(monkeypatch):
+    b = MockBroker()
+    b.set_price("SPY", 100.0)
+    b.submit_order(Order(symbol="SPY", side=Side.BUY, qty=10))
+    monkeypatch.setattr(b, "close_position", lambda symbol: None)  # the stop filled a moment earlier
+    fetch = lambda inst: fx.flat_series()  # z = 0 -> exit signal for the held SPY
+    spy = next(r for r in run_tick(b, fetch=fetch, run_id="t") if r.symbol == "SPY")
+    assert spy.action_taken == "skipped:position already closed"

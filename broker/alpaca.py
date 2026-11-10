@@ -173,6 +173,8 @@ class AlpacaBroker(BrokerAdapter):
             else:
                 time.sleep(self.poll_interval)
 
+    _RETRY_CLOSE = {403, 429, 500, 502, 503, 504}
+
     def close_position(self, symbol: str, retries: int = 6) -> Order | None:
         sym = _pos_symbol(symbol)
         pos = self.get_positions().get(sym)
@@ -181,17 +183,49 @@ class AlpacaBroker(BrokerAdapter):
         # Cancel resting orders (e.g. the protective stop) so they can't fire after the exit —
         # and wait for the cancels to settle, otherwise the close is rejected. Right after the open
         # a cancel can take well over 10 s (30.10. XLK, 02.11. SPY: still held after 15 s).
-        ids = [o.id for o in self.get_open_orders() if o.symbol == sym and o.id]
+        resting = [o for o in self.get_open_orders() if o.symbol == sym and o.id]
+        ids = [o.id for o in resting]
+        old_stop = next((o.stop_price for o in resting if o.side == Side.SELL and o.stop_price), None)
         for oid in ids:
             self._client.delete(f"/v2/orders/{oid}")
         self._wait_until_done(ids, timeout=30.0)
-        for attempt in range(retries):
-            r = self._client.delete(f"/v2/positions/{sym}")
-            if r.status_code < 400:
-                return Order(symbol=symbol, side=Side.SELL, qty=abs(pos.qty), id=r.json().get("id"))
-            logger.error("Close position failed (%s, attempt %d/%d): %s", r.status_code, attempt + 1,
-                         retries, r.text)
-            if r.status_code != 403:
-                break
-            time.sleep(self.poll_interval * 10)
-        return Order(symbol=symbol, side=Side.SELL, qty=pos.qty, status=OrderStatus.REJECTED)
+        sold = False
+        try:
+            for attempt in range(retries):
+                r = self._client.delete(f"/v2/positions/{sym}")
+                if r.status_code < 400:
+                    sold = True
+                    return Order(symbol=symbol, side=Side.SELL, qty=abs(pos.qty), id=r.json().get("id"))
+                if r.status_code == 404:  # already flat: the stop filled while it was being cancelled
+                    sold = True
+                    return None
+                logger.error("Close position failed (%s, attempt %d/%d): %s", r.status_code, attempt + 1,
+                             retries, r.text)
+                if r.status_code not in self._RETRY_CLOSE:
+                    break
+                time.sleep(self.poll_interval * 10)
+            return Order(symbol=symbol, side=Side.SELL, qty=pos.qty, status=OrderStatus.REJECTED)
+        finally:
+            if not sold and old_stop is not None and "/" not in symbol:
+                self._rearm_stop(symbol, ids, old_stop)
+
+    def _rearm_stop(self, symbol: str, cancelled_ids: list[str], stop_price: float) -> None:
+        """The sale failed after the protective stop was cancelled: put the stop back, so the
+        position is not left without one until the next tick (four failed opening sales in
+        October 2026 each left ~47 k$ unprotected for about 14 minutes)."""
+        sym = _pos_symbol(symbol)
+        try:
+            self._wait_until_done(cancelled_ids, timeout=30.0)
+            pos = self.get_positions().get(sym)
+            if not pos or pos.qty <= 0:
+                return
+            if any(o.symbol == sym and o.side == Side.SELL for o in self.get_open_orders()):
+                return  # the cancel never went through: the old stop is still there
+            o = self.submit_order(Order(symbol=symbol, side=Side.SELL, qty=pos.qty, type=OrderType.STOP,
+                                        stop_price=stop_price))
+            if o.status == OrderStatus.REJECTED:
+                logger.error("Sale of %s failed and its stop could not be re-placed at %s", sym, stop_price)
+            else:
+                logger.warning("Sale of %s failed: protective stop re-placed at %s", sym, stop_price)
+        except Exception:  # noqa: BLE001 — never mask the original failure
+            logger.exception("Re-placing the stop for %s failed", sym)

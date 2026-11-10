@@ -87,6 +87,12 @@ def ensure_protective_stops(broker: BrokerAdapter, positions, open_orders: list[
                 fixed.append(sym)
                 logger.warning("%s at %s is below its stop %s: sold at market", sym, price, stop.stop_price)
             continue
+        # The stop may have filled between the two snapshots: a sell stop for shares that are gone
+        # would rest at the broker as a short sale nobody manages. Look again before placing it.
+        held = broker.get_positions().get(sym)
+        if held is None or not held.is_long:
+            continue
+        stop.qty = held.qty
         o = broker.submit_order(stop)
         if o.status != OrderStatus.REJECTED:
             fixed.append(sym)
@@ -136,8 +142,10 @@ def run_tick(
     run_id = run_id or uuid.uuid4().hex[:12]
     dry = config.dry_run()
     account = broker.get_account()
-    positions = broker.get_positions()
+    # Orders first: a stop that fills between the two reads then still shows as resting (harmless),
+    # instead of its position showing as unprotected.
     open_orders = broker.get_open_orders()
+    positions = broker.get_positions()
     clock = broker.clock()
     market_open = clock.is_open
     opening_phase = market_open and minutes_since_us_open(_now()) < config.opening_delay_min()
@@ -211,7 +219,10 @@ def run_tick(
                 else:
                     order = broker.close_position(inst.symbol)
                     rec.order_id = order.id if order else None
-                    rec.action_taken = "exit_failed" if order and order.status == OrderStatus.REJECTED else "exit"
+                    if order is None:  # gone already: its stop filled first; the loop reports the stop-out
+                        rec.action_taken = "skipped:position already closed"
+                    else:
+                        rec.action_taken = "exit_failed" if order.status == OrderStatus.REJECTED else "exit"
 
             else:  # ENTER_LONG, flat
                 # An entry that hasn't filled yet still counts for the correlation filter
