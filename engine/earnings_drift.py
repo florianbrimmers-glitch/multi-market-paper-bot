@@ -83,14 +83,31 @@ def candidates(universe: dict, snaps: dict, today: str) -> list[tuple[str, dict,
     return sorted(out, key=lambda x: -x[2])
 
 
+WARM_UP_BEFORE_OPEN = timedelta(hours=6)
+WARM_UP_AFTER_OPEN_MIN = 31
+
+
 def warm_up(clock) -> None:
-    """Build today's universe early in the session (first tick 15+ minutes after the open), so
-    the pass before the close only needs snapshots and news. Failures are retried next tick."""
-    if not clock.is_open or not config.drift_enabled():
+    """Build today's universe ahead of the pass before the close, which then only needs snapshots
+    and news. It takes 2.5 to 13 minutes (whole-market daily bars) and only uses complete days, so
+    it runs in a pre-market tick of the trading day. A job that starts during the session catches
+    up after the 10:00 tick: built in the 09:45 tick, it came within two minutes of swallowing the
+    10:00 tick, where more than half of all mean-reversion entries happen (05.11.2026).
+    Failures are retried next tick."""
+    if not config.drift_enabled():
         return
-    today = clock.timestamp.astimezone(NY).date().isoformat()
-    opened = clock.timestamp.astimezone(NY).replace(hour=9, minute=30, second=0, microsecond=0)
-    if _universe_cache.get("day") == today or (clock.timestamp - opened).total_seconds() < 15 * 60:
+    now = clock.timestamp.astimezone(NY)
+    if clock.is_open:
+        today = now.date().isoformat()
+        opened = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        if (now - opened).total_seconds() < WARM_UP_AFTER_OPEN_MIN * 60:
+            return
+    else:
+        opens = clock.next_open.astimezone(NY)
+        if opens.date() != now.date() or opens - now > WARM_UP_BEFORE_OPEN:
+            return
+        today = opens.date().isoformat()
+    if _universe_cache.get("day") == today:
         return
     try:
         build_universe(today)

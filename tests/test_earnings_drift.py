@@ -153,11 +153,33 @@ def test_one_failing_batch_does_not_stop_the_scan(monkeypatch):
     assert set(out) == {"AAA", "CCC"}
 
 
-def test_warm_up_builds_the_universe_once_after_the_open(monkeypatch):
+def test_warm_up_in_the_session_waits_until_after_the_first_entry_tick(monkeypatch):
+    """A job that starts mid-session must not build the universe before the 10:00 tick (05.11.2026:
+    the build ended 116 s before it)."""
     monkeypatch.setenv("DRIFT_ENABLED", "true")
     built = []
     monkeypatch.setattr(drift, "build_universe", lambda today: built.append(today))
     drift._universe_cache.clear()
-    drift.warm_up(_clock(h=9, m=35))         # too early
-    drift.warm_up(_clock(h=9, m=45))
+    drift.warm_up(_clock(h=9, m=45))         # would run into the 10:00 tick
+    drift.warm_up(_clock(h=10, m=1))
+    assert built == ["2026-10-15"]
+
+
+def test_warm_up_builds_before_the_open_of_a_trading_day_only(monkeypatch):
+    monkeypatch.setenv("DRIFT_ENABLED", "true")
+    built = []
+    monkeypatch.setattr(drift, "build_universe", lambda today: built.append(today))
+    drift._universe_cache.clear()
+
+    def closed(day, h, m, opens):
+        ts = datetime(2026, 10, day, h, m, tzinfo=NY)
+        return Clock(timestamp=ts, is_open=False, next_open=opens, next_close=opens + timedelta(hours=6, minutes=30))
+
+    thursday_open = datetime(2026, 10, 15, 9, 30, tzinfo=NY)
+    drift.warm_up(closed(14, 20, 0, thursday_open))   # the evening before: not yet
+    drift.warm_up(closed(15, 2, 0, thursday_open))    # more than six hours ahead: not yet
+    assert built == []
+    drift.warm_up(closed(15, 7, 0, thursday_open))
+    assert built == ["2026-10-15"]
+    drift.warm_up(closed(17, 7, 0, datetime(2026, 10, 19, 9, 30, tzinfo=NY)))  # Saturday morning: no session today
     assert built == ["2026-10-15"]
