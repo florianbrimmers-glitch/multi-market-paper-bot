@@ -58,3 +58,20 @@ def test_slippage_makes_every_round_trip_cost_money():
     for a, b in zip(free.trades, costly.trades):
         assert round(b.entry_price / a.entry_price, 6) == 1.0005  # bought 5 bps above the bar close
     assert list(costly.equity_by_day.values())[-1] < list(free.equity_by_day.values())[-1]
+
+
+def test_live_ticks_cannot_sell_on_the_closing_bar_and_sells_at_the_next_open():
+    """2026-10-29: the backtest sold QQQ at the 16:00 close on a signal the live loop only sees
+    once the market is shut; live held overnight and sold into the gap the next morning."""
+    from datetime import timedelta
+    day1 = _session(98.0)
+    last = day1[-1]  # the 15:45-16:00 bar: back above the mean
+    day1[-1] = last.model_copy(update={"open": 101.0, "high": 101.1, "low": 100.9, "close": 101.0})
+    day2 = [b.model_copy(update={"timestamp": b.timestamp + timedelta(days=1), "open": 99.5, "high": 99.6,
+                                 "low": 99.4, "close": 99.5}) for b in _session(100.0)]
+    data = {"AAA": day1 + day2}
+    old = backtest_portfolio(data, 4.0).trades[0]
+    live = backtest_portfolio(data, 4.0, live_ticks=True).trades[0]
+    assert old.exit_time == last.timestamp.isoformat() and old.exit_price == 101.0   # sold at the close
+    assert live.exit_time == day2[0].timestamp.isoformat() and live.exit_price == 99.5  # next open
+    assert live.reason_out.endswith("(open)")

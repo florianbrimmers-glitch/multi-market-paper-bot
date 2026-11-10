@@ -117,8 +117,9 @@ def main(argv: list[str]) -> None:
     if argv[0] == "year":  # run_screen.py year <YYYY> <unused> <mean-reversion symbols...>
         compare_year(int(argv[1]), argv[3:])
         return
-    if argv[0] == "series":  # run_screen.py series <YYYY> <slippage bps per side,> <symbols...>
-        print_series(int(argv[1]), [float(x) for x in argv[2].split(",")], argv[3:])
+    if argv[0] in ("series", "series_live"):  # run_screen.py series <YYYY> <slippage bps per side,> <symbols...>
+        print_series(int(argv[1]), [float(x) for x in argv[2].split(",")], argv[3:],
+                     live_ticks=argv[0] == "series_live")  # series_live: decide only when the live loop can
         return
     if argv[0] == "universe":  # run_screen.py universe <years,> <candidates,> <current symbols...>
         compare_universe([int(y) for y in argv[1].split(",")], argv[2].split(","), argv[3:])
@@ -484,7 +485,7 @@ def compare_limits(years: list[int], specs: list[str], symbols: list[str]) -> No
               f"{sum(rows[(y, spec)][2] for y in years)} |")
 
 
-def print_series(year: int, costs: list[float], symbols: list[str]) -> None:
+def print_series(year: int, costs: list[float], symbols: list[str], live_ticks: bool = False) -> None:
     """Mean reversion over one calendar year in one account (live caps, margin interest) at several
     execution-cost levels: the yearly result per level, then the daily equity and every trade as CSV
     (for the first two levels) — raw material for further analysis."""
@@ -499,14 +500,14 @@ def print_series(year: int, costs: list[float], symbols: list[str]) -> None:
                           days=(end_dt - datetime(year - 1, 12, 1, tzinfo=timezone.utc)).days, end=end_dt)
             for s in symbols}
     print(f"{year}: mean reversion, {len(symbols)} markets, one account; cost = bps per side "
-          f"(buy above / sell below the bar close or stop)")
+          f"(buy above / sell below the bar close or stop)" + ("; live ticks" if live_ticks else ""))
     print("| Kosten je Seite | Ergebnis | größter Rückgang | Trades | Treffer | Ø Gewinn je Trade | Ø Positionsgröße |")
     print("|---|---|---|---|---|---|---|")
     keep = []
     for cost in costs:
         r = backtest_portfolio(data, 4.0, group_of=group_of, late_exposure=config.overnight_exposure_cap(),
                                late_minutes=config.late_entry_min(), margin_rate=MARGIN_RATE.get(year, 0.06),
-                               slippage_bps=cost)
+                               slippage_bps=cost, live_ticks=live_ticks)
         eq = sorted(r.equity_by_day.items())
         base = max(((d, v) for d, v in eq if d < f"{year}-01-01"), default=("", 100_000.0))[1]
         ys = [(d, v) for d, v in eq if d[:4] == str(year)]
@@ -528,7 +529,8 @@ def print_series(year: int, costs: list[float], symbols: list[str]) -> None:
         print(f"#TRADES year={year} cost_bps={cost:g}")
         print("symbol,entry_time,entry_price,qty,exit_time,exit_price,reason,pnl")
         for t in trades:
-            reason = "stop" if t.reason_out == "hard stop hit" else "signal"
+            reason = ("stop" if t.reason_out == "hard stop hit" else
+                      "open" if t.reason_out.endswith("(open)") else "signal")
             print(f"{t.symbol},{t.entry_time},{t.entry_price:.4f},{t.qty:g},{t.exit_time},{t.exit_price:.4f},"
                   f"{reason},{t.pnl:.2f}")
         print("#END")

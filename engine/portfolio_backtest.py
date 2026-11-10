@@ -25,7 +25,8 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                        group_of: dict[str, str | None] | None = None, late_exposure: float | None = None,
                        late_minutes: float = 120, core_closes: dict | None = None, core_pct: float = 0.0,
                        margin_rate: float = 0.0, max_entries_per_tick: int | None = None,
-                       max_entries_per_day: int | None = None, slippage_bps: float = 0.0) -> PortfolioResult:
+                       max_entries_per_day: int | None = None, slippage_bps: float = 0.0,
+                       live_ticks: bool = False) -> PortfolioResult:
     """max_exposure: gross long value allowed, as a multiple of equity (Alpaca intraday ~4).
     late_exposure: a lower cap for entries in the last `late_minutes` of the session — those are
     the positions most likely to be held overnight.
@@ -35,7 +36,11 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
     max_entries_per_tick / max_entries_per_day: at most this many new positions per 15-minute
     check / per session (in instrument order).
     slippage_bps: execution cost per side in basis points of the price (half the bid-ask spread plus
-    slippage): buys fill that much above the bar close, sells and stop fills that much below."""
+    slippage): buys fill that much above the bar close, sells and stop fills that much below.
+    live_ticks: decide when the live loop can. The bar that ends at the close is only complete once
+    the market is shut, so no signal is acted on there (stops still fire); and the loop's 09:30 tick
+    sells a held position at the open when the bars up to the open already say exit. Without it the
+    backtest sold at the 16:00 close (2026-10-29: QQQ, XLK, SPY) and first decided at 09:45."""
     group_of = group_of or {}
     slip = slippage_bps / 10_000
     strat = build_strategy("mean_reversion", config.STRATEGY_PARAMS)
@@ -50,6 +55,7 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
     closes = sorted((core_closes or {}).items())
     prev_day = None
     day_entries = 0
+    seen_day: dict[str, object] = {}
 
     def equity() -> float:
         return cash + sum(p[0] * last[s] for s, p in pos.items()) + core["qty"] * core["px"]
@@ -84,6 +90,15 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
             if session is None:
                 continue
             last[sym] = bar.close
+            first_of_day = seen_day.get(sym) != day
+            seen_day[sym] = day
+            if live_ticks and first_of_day and sym in pos and bar.open > pos[sym][2]:
+                pre = strat.generate_signal(sym, bars[:i], True)  # what the 09:30 tick sees
+                if pre.action == Action.EXIT:
+                    qty, _, _, t = pos.pop(sym)
+                    fill = bar.open * (1 - slip)
+                    cash += qty * fill
+                    t.exit_time, t.exit_price, t.reason_out = ts.isoformat(), fill, f"{pre.reason} (open)"
             if sym in pos and bar.low <= pos[sym][2]:  # stop, a gap fills at the open
                 qty, _, stop, t = pos.pop(sym)
                 fill = min(bar.open, stop) * (1 - slip)
@@ -91,6 +106,8 @@ def backtest_portfolio(data: dict[str, list[Bar]], max_exposure: float, starting
                 t.exit_time, t.exit_price, t.reason_out = ts.isoformat(), fill, "hard stop hit"
                 last_stop[sym] = i
             since_open, to_close = session
+            if live_ticks and to_close <= 0:
+                continue  # the market is closed by the time this bar is complete
             sig = strat.generate_signal(sym, bars[: i + 1], sym in pos)
             if sig.action == Action.EXIT and sym in pos:
                 qty, _, _, t = pos.pop(sym)
