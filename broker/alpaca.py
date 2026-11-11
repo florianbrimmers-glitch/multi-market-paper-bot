@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import date, datetime
 
 import httpx
 
@@ -111,6 +111,12 @@ class AlpacaBroker(BrokerAdapter):
         d = r.json()
         return Clock(timestamp=_parse_ts(d["timestamp"]), is_open=bool(d["is_open"]),
                      next_open=_parse_ts(d["next_open"]), next_close=_parse_ts(d["next_close"]))
+
+    def trading_days(self, start: date, end: date) -> list[date]:
+        """Sessions of the US exchanges (half days included, holidays left out)."""
+        r = self._client.get("/v2/calendar", params={"start": start.isoformat(), "end": end.isoformat()})
+        r.raise_for_status()
+        return [date.fromisoformat(d["date"]) for d in r.json()]
 
     def submit_order(self, order: Order) -> Order:
         crypto = "/" in order.symbol

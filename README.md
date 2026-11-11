@@ -64,7 +64,8 @@ US-Markt statt einer festen Liste.
   ~800 Werte und die eigenen Instrumente ausgenommen).
 - **Kaufsignal:** Kurs heute ≥ 6 % über dem Vortag, nahe am Tageshoch (oberes Viertel der
   Spanne), mindestens doppeltes Volumen und eine Quartalszahlen-Schlagzeile seit gestern Abend.
-- **Ausstieg:** Stop 3 % unter Einstieg, Verkauf nach 10 Handelstagen.
+- **Ausstieg:** Stop 3 % unter Einstieg, Verkauf nach 10 Handelstagen (gezählt nach dem
+  Börsenkalender, Feiertage zählen nicht mit).
 - **Größe:** 0,15 % Risiko pro Trade (etwa 5 % des Kontos je Position); alle Drift-Positionen
   zusammen höchstens 50 % des Kontos, damit Mean Reversion genug Kaufkraft behält.
 - **Grundlage:** `run_earnings_study.py` (2 Jahre, alle liquiden US-Aktien). Mittlere und kleine

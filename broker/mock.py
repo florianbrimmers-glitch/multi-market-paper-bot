@@ -7,7 +7,7 @@ sees a low at or below the stop price — like a real broker, not instantly. An 
 from __future__ import annotations
 
 import itertools
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from broker.base import BrokerAdapter
 from models import Account, Clock, Order, OrderStatus, OrderType, Position, Side
@@ -29,6 +29,7 @@ class MockBroker(BrokerAdapter):
         self.market_open = True
         self.fill_market = True  # False: market orders stay open, like an Alpaca order not yet filled
         self.fixed_clock: Clock | None = None
+        self.holidays: set[date] = set()  # weekdays on which the exchange is closed
         self.sell_fills: list[tuple[str, float, float]] = []  # (symbol key, qty, price)
 
     def set_price(self, symbol: str, price: float) -> None:
@@ -55,6 +56,9 @@ class MockBroker(BrokerAdapter):
         now = datetime.now(timezone.utc)
         return Clock(timestamp=now, is_open=self.market_open,
                      next_open=now + timedelta(hours=1), next_close=now + timedelta(hours=2))
+
+    def trading_days(self, start: date, end: date) -> list[date]:
+        return [d for d in super().trading_days(start, end) if d not in self.holidays]
 
     def _fill(self, order: Order, price: float) -> Order:
         k = _key(order.symbol)

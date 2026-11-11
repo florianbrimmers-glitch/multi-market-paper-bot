@@ -35,12 +35,29 @@ _universe_cache: dict = {}
 
 
 def add_trading_days(d: date, n: int) -> date:
-    """d plus n weekdays (exchange holidays are ignored: the exit then just comes a day later)."""
+    """d plus n weekdays. Exchange holidays count as trading days here, so this is only the
+    fallback of exit_date: a holiday inside the holding period makes the sale one session early."""
     while n > 0:
         d += timedelta(days=1)
         if d.weekday() < 5:
             n -= 1
     return d
+
+
+def exit_date(broker, today: date, n: int) -> date:
+    """The n-th exchange session after today, from the broker's calendar. Counting weekdays sold
+    every position bought in the nine sessions before a holiday one session early (a third of all
+    entry days), and named a closed day as the sale date (bought 12.11.2026: "26.11.", Thanksgiving).
+    If the calendar cannot be read, the weekday count is used."""
+    try:
+        sessions = [d for d in broker.trading_days(today + timedelta(days=1),
+                                                   today + timedelta(days=2 * n + 10)) if d > today]
+        if len(sessions) >= n:
+            return sorted(sessions)[n - 1]
+        log.warning("exchange calendar returned only %d sessions; counting weekdays", len(sessions))
+    except Exception:  # noqa: BLE001 — the buy must not depend on the calendar request
+        log.warning("exchange calendar not available; counting weekdays for the sale date")
+    return add_trading_days(today, n)
 
 
 def build_universe(today: str, symbols=None, bars_fn=None) -> dict[str, dict]:
@@ -184,6 +201,7 @@ def run(broker, state, clock, universe_fn=build_universe, snapshots_fn=None, new
     # Drift buys come 15 minutes before the close and are held overnight: the overnight cap applies.
     from risk.risk_manager import overnight_room
     night_room = overnight_room(account.equity, positions)
+    exit_on: date | None = None  # the same for every buy of this pass; looked up at the first one
     for sym, q, move in cands:
         heads = [n for n in news.get(sym, []) if n.is_earnings]
         if not heads:
@@ -216,8 +234,8 @@ def run(broker, state, clock, universe_fn=build_universe, snapshots_fn=None, new
         room -= qty * price
         night_room -= qty * price
         account.buying_power -= qty * price
-        state.drift[sym] = {"entry_on": today.isoformat(),
-                            "exit_on": add_trading_days(today, config.DRIFT_HOLD_DAYS).isoformat(),
+        exit_on = exit_on or exit_date(broker, today, config.DRIFT_HOLD_DAYS)
+        state.drift[sym] = {"entry_on": today.isoformat(), "exit_on": exit_on.isoformat(),
                             "qty": qty, "price": price}
         events.append(f"- 🟢 **{sym}** gekauft: {i18n.qty(qty)} Stück zu ca. {i18n.usd(price)}, Stop "
                       f"{i18n.usd(stop)} (Earnings-Drift: {reason}; Verkauf spätestens am "

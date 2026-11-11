@@ -37,6 +37,60 @@ def test_trading_days_skip_weekends():
     assert drift.add_trading_days(date(2026, 10, 16), 1) == date(2026, 10, 19)   # Fri -> Mon
 
 
+def test_sale_date_counts_exchange_sessions_not_weekdays():
+    """Thanksgiving 2026 (Thu 26.11.) is no session; the Friday after is a half day and counts."""
+    b = MockBroker()
+    b.holidays = {date(2026, 11, 26)}
+    assert drift.exit_date(b, date(2026, 11, 12), 10) == date(2026, 11, 27)  # weekdays alone: 26.11., closed
+    assert drift.exit_date(b, date(2026, 11, 13), 10) == date(2026, 11, 30)  # weekdays alone: 27.11., 9 sessions
+    assert drift.exit_date(b, date(2026, 11, 25), 10) == date(2026, 12, 10)
+    assert drift.exit_date(b, date(2026, 10, 15), 10) == date(2026, 10, 29)  # no holiday: unchanged
+    b.holidays = {date(2026, 12, 25), date(2027, 1, 1)}
+    assert drift.exit_date(b, date(2026, 12, 24), 10) == date(2027, 1, 11)   # two holidays inside the hold
+
+
+def test_sale_date_falls_back_to_weekdays_without_a_calendar(monkeypatch):
+    b = MockBroker()
+
+    def broken(start, end):
+        raise RuntimeError("calendar down")
+
+    monkeypatch.setattr(b, "trading_days", broken)
+    assert drift.exit_date(b, date(2026, 11, 13), 10) == date(2026, 11, 27)
+    monkeypatch.setattr(b, "trading_days", lambda start, end: [])  # an empty answer is not trusted either
+    assert drift.exit_date(b, date(2026, 11, 13), 10) == date(2026, 11, 27)
+
+
+def test_buy_before_a_holiday_is_posted_with_a_real_session_as_sale_date(live):
+    b = MockBroker()
+    b.holidays = {date(2026, 11, 26)}
+    b.set_price("ABC", 21.6)
+    state = BriefState()
+    events = drift.run(b, state, _clock(date(2026, 11, 12)), universe_fn=lambda d: UNIVERSE,
+                       snapshots_fn=lambda syms: {"ABC": _snap(day="2026-11-12")},
+                       news_fn=lambda syms, start, end: {"ABC": [NewsItem(end, "ABC Q3 earnings beat", ["ABC"])]})
+    assert state.drift["ABC"]["exit_on"] == "2026-11-27"
+    assert "Verkauf spätestens am 27.11." in events[0]
+
+
+def test_alpaca_calendar_lists_the_sessions(monkeypatch):
+    import httpx
+    monkeypatch.setenv("ALPACA_API_KEY", "PKTEST")
+    monkeypatch.setenv("ALPACA_API_SECRET", "secret")
+    from broker.alpaca import AlpacaBroker
+    asked = []
+
+    def handler(request):
+        asked.append(str(request.url))
+        return httpx.Response(200, json=[{"date": "2026-11-25", "open": "09:30", "close": "16:00"},
+                                         {"date": "2026-11-27", "open": "09:30", "close": "13:00"}])
+
+    broker = AlpacaBroker()
+    broker._client = httpx.Client(base_url=broker.base_url, transport=httpx.MockTransport(handler))
+    assert broker.trading_days(date(2026, 11, 25), date(2026, 11, 27)) == [date(2026, 11, 25), date(2026, 11, 27)]
+    assert asked[0].endswith("/v2/calendar?start=2026-11-25&end=2026-11-27")
+
+
 def test_candidates_need_move_range_and_volume():
     snaps = {"ABC": _snap(),                       # +8 %, near the high, 3x volume
              "XYZ": _snap(c=21.0, h=21.7),         # +5 %: too small

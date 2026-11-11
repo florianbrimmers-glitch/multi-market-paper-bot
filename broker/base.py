@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from models import Account, Clock, Order, Position
 
@@ -25,6 +25,12 @@ class BrokerAdapter(ABC):
 
     def is_market_open(self) -> bool:
         return self.clock().is_open
+
+    def trading_days(self, start: date, end: date) -> list[date]:
+        """Exchange sessions from start to end, both included. Default: every weekday (a broker
+        with a calendar leaves out the holidays)."""
+        days = (start + timedelta(days=i) for i in range((end - start).days + 1))
+        return [d for d in days if d.weekday() < 5]
 
     @abstractmethod
     def submit_order(self, order: Order) -> Order: ...
