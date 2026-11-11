@@ -229,11 +229,18 @@ def test_paused_strategy_opens_nothing_but_still_exits(log_path, monkeypatch):
     broker = MockBroker()
     broker.set_price("USO", 150.0)
     _held(broker, "GLD", 200.0, 120.0)
-    fetch = lambda inst: (fx.uptrend() if inst.symbol == "USO"
-                          else fx.downtrend() if inst.symbol == "GLD" else fx.flat_series())
+    asked: list[str] = []
+
+    def fetch(inst):
+        asked.append(inst.symbol)
+        return (fx.uptrend() if inst.symbol == "USO"
+                else fx.downtrend() if inst.symbol == "GLD" else fx.flat_series())
+
     recs = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
-    assert recs["USO"].action_taken == "skipped:strategy paused"
+    assert recs["USO"].action_taken == "hold" and recs["USO"].signal is None
+    assert "USO" not in asked            # paused and not held: not even evaluated
     assert "USO" not in broker.get_positions()
+    assert "GLD" in asked                # a held position of a paused strategy still is
     assert recs["GLD"].action_taken == "exit"
     assert "GLD" not in broker.get_positions()   # the open position is still closed on its exit signal
 
@@ -245,8 +252,40 @@ def test_paused_symbol_opens_nothing(log_path, monkeypatch):
     broker = MockBroker()
     broker.set_price("DB", 90.0)
     recs = {r.symbol: r for r in run_tick(broker, fetch=_fetch(("DB",)), run_id="t")}
-    assert recs["DB"].action_taken == "skipped:symbol paused"
+    assert recs["DB"].action_taken == "hold"
     assert "DB" not in broker.get_positions()
+
+
+def test_paused_markets_are_not_fetched_and_their_data_errors_stay_silent(log_path, monkeypatch):
+    """Live pause lists, nothing held: only the 13 active markets are evaluated; a broken data
+    feed for a paused market (here Bitcoin) produces no error record."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.delenv("PAUSED_STRATEGIES")
+    monkeypatch.delenv("PAUSED_SYMBOLS")
+    asked: list[str] = []
+
+    def fetch(inst):
+        asked.append(inst.symbol)
+        if inst.symbol == "BTC/USD":
+            raise RuntimeError("crypto feed down")
+        return fx.flat_series()
+
+    records = run_tick(MockBroker(), fetch=fetch, run_id="t")
+    assert len(records) == len(config.INSTRUMENTS)
+    assert sorted(asked) == sorted(["SPY", "QQQ", "XLK", "EWG", "EEM", "FXI", "SAP", "XLE", "XLI",
+                                    "XLP", "AVGO", "JPM", "XLU"])
+    assert not [r for r in records if r.error]
+    assert {r.symbol for r in records if r.signal is None} == {"BTC/USD", "GLD", "USO", "DAX", "DB", "BNTX"}
+
+
+def test_paused_market_with_a_failed_sale_is_still_evaluated(log_path, monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setenv("PAUSED_STRATEGIES", "trend_following")
+    broker = MockBroker()
+    _held(broker, "GLD", 200.0, 120.0)
+    recs = {r.symbol: r for r in run_tick(broker, fetch=lambda inst: fx.flat_series(), run_id="t",
+                                          force_exit={"GLD"})}
+    assert recs["GLD"].action_taken == "exit"
 
 
 def test_partner_of_a_stopped_symbol_buys_at_half_size(log_path, monkeypatch):

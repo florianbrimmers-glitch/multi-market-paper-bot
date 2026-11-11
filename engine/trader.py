@@ -182,8 +182,17 @@ def run_tick(
         rec = TradeRecord(run_id=run_id, evaluated_at=datetime.now(timezone.utc).isoformat(),
                           symbol=inst.symbol, strategy=inst.strategy, dry_run=dry)
         try:
-            bars = fetch(inst)
             in_position = sym in positions and positions[sym].is_long
+            if (not in_position and sym not in pending_buys and sym not in force_exit
+                    and (inst.strategy in paused or inst.symbol in paused_syms)):
+                # Paused and nothing held: this market cannot act, so no data request and no signal
+                # (six of nineteen requests per tick, and a data error there would post a warning
+                # every 15 minutes). Recorded as "hold": the briefs list every other action.
+                rec.action_taken = "hold"
+                logbuch.append_record(rec)
+                records.append(rec)
+                continue
+            bars = fetch(inst)
             signal = build_strategy(inst.strategy, config.STRATEGY_PARAMS).generate_signal(
                 inst.symbol, bars, in_position)
             crypto = inst.asset_class == AssetClass.CRYPTO
