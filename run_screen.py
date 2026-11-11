@@ -104,6 +104,10 @@ def main(argv: list[str]) -> None:
         extra = [] if argv[2] == "-" else argv[2].split(";")
         run_earnings_study.main([argv[1]] + extra)
         return
+    if argv[0] == "drift_detail":  # run_screen.py drift_detail <days>: live costs, headline classes, stops
+        import run_drift_detail
+        run_drift_detail.main([argv[1]])
+        return
     if argv[0] == "news_study":  # run_screen.py news_study <days> <unused> <symbols...>
         import run_news_study
         run_news_study.main([argv[1]] + argv[3:])
