@@ -99,7 +99,8 @@ def test_settings_line_names_what_is_in_force(monkeypatch):
     monkeypatch.delenv("PAUSED_SYMBOLS")
     line = config.describe_settings()
     assert "dry_run=False drift_enabled=False eod_flat_mode=off overnight_exposure_cap=1.5" in line
-    assert "paused_strategies=['momentum_breakout', 'trend_following'] paused_symbols=['DB']" in line
+    assert ("paused_strategies=['mean_reversion', 'momentum_breakout', 'trend_following'] "
+            "paused_symbols=['DB']") in line
 
 
 # --- what the loop workflow hands to the bot --------------------------------

@@ -41,8 +41,17 @@ Abend-Briefings, die Claude schreibt. Der Bot läuft auf einem kostenlosen
 neuen Positionen. Trendfolge verlor alle 4 Trades durch Kurslücken über Nacht. Beim
 Momentum-Ausbruch fraßen die Krypto-Gebühren (~110 $ pro Runde) den typischen Gewinn auf. Offene
 Positionen dieser Strategien werden weiter verwaltet und normal verkauft. Gesteuert wird das über
-die Einstellung `PAUSED_STRATEGIES` in `config.py` (Standard `trend_following,momentum_breakout`; leer = alle
-aktiv). Vor einer Reaktivierung wird Trendfolge auf Tageskerzen über 1–2 Jahre getestet.
+die Einstellung `PAUSED_STRATEGIES` in `config.py` (Standard
+`trend_following,momentum_breakout,mean_reversion`; leer = alle aktiv). Vor einer Reaktivierung wird
+Trendfolge auf Tageskerzen über 1–2 Jahre getestet.
+
+**Mean Reversion pausiert (seit 20.11.2026):** Mean Reversion kauft nichts Neues mehr; offene
+Positionen behalten ihren Stop und werden normal verkauft. Grund: Nach den live gemessenen Kosten
+ist sie im korrigierten Backtest negativ (2022 bis 2025 jedes Jahr), und im Kursrutsch vom 13. bis
+20.11.2026 verlor sie in sechs Handelstagen 12.556 $ (41 Stop-Outs in fünf Tagen, S&P 500 −8,9 %).
+Trendfilter und eine Tagesbremse verringern den Verlust, machen sie aber nicht profitabel.
+Earnings Drift läuft weiter. Die Beschreibungen zu Mean Reversion unten gelten für den Fall einer
+Reaktivierung.
 
 **Erweiterung Mean Reversion (12.10.2026):** Vor der Aufnahme lief jeder Kandidat durch
 `Backtest Screen` (180 Tage, 15-Min-Kerzen, Live-Regeln). Aufgenommen wurde nur, wer im Plus lag

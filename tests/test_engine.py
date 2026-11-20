@@ -218,9 +218,30 @@ def test_correlation_filter_counts_unfilled_entries(log_path, monkeypatch):
     assert "half size: SPY already long" in records["QQQ"].plan.reason
 
 
-def test_default_pause_list_covers_trend_and_momentum(monkeypatch):
+def test_default_pause_list_covers_every_strategy_of_the_registry(monkeypatch):
+    """Since 2026-11-20 mean reversion is paused too: the tick opens nothing; earnings drift,
+    which is not a registry strategy, keeps running."""
     monkeypatch.delenv("PAUSED_STRATEGIES")
-    assert config.paused_strategies() == {"trend_following", "momentum_breakout"}
+    assert config.paused_strategies() == {"trend_following", "momentum_breakout", "mean_reversion"}
+
+
+def test_with_the_live_defaults_nothing_is_bought_and_a_held_position_is_still_sold(log_path, monkeypatch):
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.delenv("PAUSED_STRATEGIES")
+    monkeypatch.delenv("PAUSED_SYMBOLS")
+    broker = MockBroker()
+    broker.set_price("SPY", 90.0)                      # oversold: would be bought if not paused
+    _held(broker, "FXI", 100.0, 100.0)                 # held from before the pause, back at its average
+    asked: list[str] = []
+
+    def fetch(inst):
+        asked.append(inst.symbol)
+        return fx.flat_then_drop() if inst.symbol == "SPY" else fx.flat_series()
+
+    recs = {r.symbol: r for r in run_tick(broker, fetch=fetch, run_id="t")}
+    assert asked == ["FXI"]                            # only the held market is evaluated
+    assert recs["SPY"].action_taken == "hold" and "SPY" not in broker.get_positions()
+    assert recs["FXI"].action_taken == "exit" and "FXI" not in broker.get_positions()
 
 
 def test_paused_strategy_opens_nothing_but_still_exits(log_path, monkeypatch):
@@ -257,10 +278,11 @@ def test_paused_symbol_opens_nothing(log_path, monkeypatch):
 
 
 def test_paused_markets_are_not_fetched_and_their_data_errors_stay_silent(log_path, monkeypatch):
-    """Live pause lists, nothing held: only the 13 active markets are evaluated; a broken data
-    feed for a paused market (here Bitcoin) produces no error record."""
+    """Trend following, momentum breakout and DB paused, nothing held: only the 13 mean-reversion
+    markets are evaluated; a broken data feed for a paused market (here Bitcoin) produces no
+    error record."""
     monkeypatch.setenv("DRY_RUN", "false")
-    monkeypatch.delenv("PAUSED_STRATEGIES")
+    monkeypatch.setenv("PAUSED_STRATEGIES", "trend_following,momentum_breakout")
     monkeypatch.delenv("PAUSED_SYMBOLS")
     asked: list[str] = []
 

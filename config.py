@@ -155,8 +155,10 @@ def eod_no_entry_min() -> float:
 def paused_strategies() -> set[str]:
     """Strategies that open no new positions (open ones are still managed and exited).
     Comma-separated; empty = none paused. Default after the 2026-10-12 review: trend following
-    (gap stops, no winner) and momentum breakout (crypto fees exceed its typical gain)."""
-    raw = os.environ.get("PAUSED_STRATEGIES", "trend_following,momentum_breakout")
+    (gap stops, no winner) and momentum breakout (crypto fees exceed its typical gain). Mean
+    reversion was paused by the owner on 2026-11-20: after measured costs it loses in the corrected
+    backtest, and it lost 12,556 $ in the six sessions of the sell-off of 13.-20.11.2026."""
+    raw = os.environ.get("PAUSED_STRATEGIES", "trend_following,momentum_breakout,mean_reversion")
     names = {s.strip().lower().replace("-", "_") for s in raw.split(",") if s.strip()}
     for unknown in sorted(names - {i.strategy for i in INSTRUMENTS}):
         _warn_once("PAUSED_STRATEGIES", unknown, "names no strategy of any instrument — it pauses nothing")
