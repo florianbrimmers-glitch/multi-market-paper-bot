@@ -36,6 +36,7 @@ class BriefState(BaseModel):
     drift_day: str = ""  # New York date of the last earnings-drift pass
     retry_exit: list[str] = []  # sales that failed last tick; retried even without an exit signal
     pending: dict[str, list] = {}  # entries not filled at the end of the last tick: [qty, entry, ISO time]
+    core_day: str = ""  # New York date of the last ETF core top-up check
 
 
 def state_path() -> str:

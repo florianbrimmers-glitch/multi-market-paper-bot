@@ -181,9 +181,19 @@ def atr_stop_mult() -> float:
 
 
 def drift_enabled() -> bool:
-    """Earnings drift (engine/earnings_drift.py) on/off. Default on. The loop workflow passes the
-    repository variable DRIFT_ENABLED; open drift positions are still managed and sold when off."""
-    return _env_bool("DRIFT_ENABLED", True)
+    """Earnings drift (engine/earnings_drift.py) on/off. Default off since 24.11.2026 (owner's
+    decision: the account becomes an ETF core holding). The loop workflow passes the repository
+    variable DRIFT_ENABLED; open drift positions are still managed and sold when off."""
+    return _env_bool("DRIFT_ENABLED", False)
+
+
+CORE_SYMBOL = "URTH"      # iShares MSCI World (US listing), stand-in for an MSCI World UCITS ETF
+CORE_TARGET_PCT = 1.0     # share of equity held in the core ETF, topped up with idle cash only
+
+
+def core_enabled() -> bool:
+    """ETF core holding (engine/core_holding.py) on/off. Default on since 24.11.2026."""
+    return _env_bool("CORE_ENABLED", True)
 
 
 DRIFT_RISK_PCT = 0.0015        # risk per earnings-drift trade (a third of mean reversion's 0.5%)
@@ -231,7 +241,8 @@ def max_position_pct() -> float:
 def describe_settings() -> str:
     """The settings in force, for one log line at loop start: a repository variable that did not
     arrive, or a value that was rejected, shows here."""
-    return (f"dry_run={dry_run()} drift_enabled={drift_enabled()} eod_flat_mode={eod_flat_mode()} "
+    return (f"dry_run={dry_run()} drift_enabled={drift_enabled()} core={CORE_SYMBOL if core_enabled() else 'off'} "
+            f"eod_flat_mode={eod_flat_mode()} "
             f"overnight_exposure_cap={overnight_exposure_cap():g} max_position_pct={max_position_pct():g} "
             f"risk_per_trade_pct={risk_per_trade_pct():g} "
             f"paused_strategies={sorted(paused_strategies())} paused_symbols={sorted(paused_symbols())}")

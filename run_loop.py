@@ -23,7 +23,7 @@ import logbuch
 from brief.deliver import TRADE_LOG_TITLE, post_brief, post_comment
 from brief.schedule import brief_due, load_state, save_state
 from broker import AlpacaBroker
-from engine import earnings_drift, run_tick
+from engine import core_holding, earnings_drift, run_tick
 
 log = logging.getLogger("run_loop")
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -192,7 +192,7 @@ def manual_closes(broker, state, clock) -> list[str]:
 
 def loop_once(broker, state, build=None, publisher=publish, fetch=None,
               notify=lambda body: post_comment(TRADE_LOG_TITLE, body),
-              price_of=None, drift=earnings_drift) -> tuple[list, str | None]:
+              price_of=None, drift=earnings_drift, core=core_holding) -> tuple[list, str | None]:
     """One tick + trade notifications + a brief if due. Collaborators are injectable for tests."""
     now = datetime.now(timezone.utc)
     current = broker.get_positions()
@@ -234,6 +234,12 @@ def loop_once(broker, state, build=None, publisher=publish, fetch=None,
         except Exception as e:  # noqa: BLE001 — the drift pass must never break the tick
             log.exception("earnings drift pass failed")
             events.append(f"- ⚠️ Earnings-Drift: Prüfung fehlgeschlagen (`{type(e).__name__}: {str(e)[:200]}`)")
+    if core is not None and core.is_due(clock, state):
+        try:
+            events += core.run(broker, state, clock)
+        except Exception as e:  # noqa: BLE001 — the core top-up must never break the tick
+            log.exception("core holding top-up failed")
+            events.append(f"- ⚠️ ETF-Grundlage: Kauf fehlgeschlagen (`{type(e).__name__}: {str(e)[:200]}`)")
     final = broker.get_positions()
     # Stopped out while this tick was running (2026-10-22: EWG's stop fired during a 7-minute tick
     # and was never reported, so EWG was re-bought without a cooldown).

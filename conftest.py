@@ -30,3 +30,9 @@ def _no_paused_strategies(monkeypatch):
 def _no_live_drift_scan(monkeypatch):
     """The earnings-drift scan reads the whole market; tests that want it inject fakes."""
     monkeypatch.setenv("DRIFT_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
+def _no_core_top_up(monkeypatch):
+    """The ETF core top-up would add a buy to every loop test; its own tests switch it on."""
+    monkeypatch.setenv("CORE_ENABLED", "false")

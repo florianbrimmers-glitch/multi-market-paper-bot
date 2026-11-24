@@ -13,6 +13,23 @@ Abend-Briefings, die Claude schreibt. Der Bot läuft auf einem kostenlosen
 > gesetzt, alles andere wird abgelehnt. Simulierte oder im Backtest erzielte Ergebnisse sagen
 > nichts über zukünftige Renditen.
 
+## Aktueller Stand (seit 24.11.2026): ETF-Grundlage
+
+Das Konto ist eine Generalprobe für echtes Geld. Über lange Zeiträume hat nach Kosten keine
+getestete Handelsregel mehr gebracht als breit gestreute ETFs zu halten (siehe die Prüfung vom
+November 2026). Deshalb hält der Bot jetzt als Grundlage einen breiten Welt-ETF, und jede
+Strategie muss sich künftig an ihm messen.
+
+- **ETF:** `URTH` (iShares MSCI World, US-Notierung) als Ersatz für einen MSCI-World-UCITS-ETF,
+  den Alpaca nicht handelt. Ziel: 100 % des Kontos (`CORE_TARGET_PCT` in `config.py`).
+- **Kauf:** einmal pro Handelstag ab 10:00 Uhr New York wird freies Bargeld in den ETF gesteckt,
+  nur Bargeld, kein Kredit. Kein Stop, kein Verkauf zum Umschichten (`engine/core_holding.py`).
+- **Ausschalten:** Repo-Variable `CORE_ENABLED` auf `false`.
+- **Earnings Drift ist aus** (Standard von `DRIFT_ENABLED` jetzt `false`): keine neuen Käufe,
+  offene Positionen laufen mit Stop und Verkauf nach zehn Handelstagen normal aus.
+- **Hinweis zum Vergleich:** Das Alpaca-Papierkonto bucht keine Dividenden. Der ETF liegt auf dem
+  Papierkonto daher um seine Dividendenrendite (MSCI World etwa 1,5 % im Jahr) hinter dem echten ETF.
+
 ## Märkte und Strategien
 
 | Markt | Symbol | Strategie | Zeitrahmen |
@@ -189,7 +206,7 @@ Im Repo unter Settings diese **Secrets** anlegen: `ALPACA_API_KEY`, `ALPACA_API_
 `false` steht.
 
 **Repo-Variablen** (Settings → Secrets and variables → Actions → Variables): Der Bot liest nur
-`DRY_RUN`, `EOD_FLAT_MODE`, `DRIFT_ENABLED` und `OVERNIGHT_EXPOSURE_CAP`. Alle anderen Werte in
+`DRY_RUN`, `EOD_FLAT_MODE`, `DRIFT_ENABLED`, `CORE_ENABLED` und `OVERNIGHT_EXPOSURE_CAP`. Alle anderen Werte in
 dieser Anleitung (zum Beispiel `MAX_POSITION_PCT` oder die pausierten Strategien) stehen in
 `config.py` und werden dort geändert. Eine Variable wird beim Start eines Loop-Jobs gelesen: Eine
 Änderung wirkt also erst mit dem nächsten Job, spätestens nach etwa 5 Std. 40 Min. Wer nicht

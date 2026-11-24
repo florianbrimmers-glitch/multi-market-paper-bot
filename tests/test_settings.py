@@ -41,7 +41,7 @@ def test_orders_only_on_an_explicit_no(monkeypatch, value):
 
 
 @pytest.mark.parametrize("value, enabled", [
-    (None, True), ("", True), ("true", True), ("ja", True), ("an", True),
+    (None, False), ("", False), ("true", True), ("ja", True), ("an", True),
     ("false", False), (" FALSE ", False), ("0", False), ("off", False), ("nein", False), ("aus", False),
 ])
 def test_drift_switch(monkeypatch, value, enabled):
@@ -55,10 +55,10 @@ def test_drift_switch(monkeypatch, value, enabled):
 def test_unrecognised_switch_keeps_the_default_and_is_logged_once(monkeypatch, caplog):
     monkeypatch.setenv("DRIFT_ENABLED", "vielleicht")
     with caplog.at_level(logging.WARNING, logger="config"):
-        assert config.drift_enabled() is True
-        assert config.drift_enabled() is True
+        assert config.drift_enabled() is False
+        assert config.drift_enabled() is False
     assert [r.getMessage() for r in caplog.records] == [
-        "setting DRIFT_ENABLED='vielleicht' is neither yes nor no — using the default (True)"]
+        "setting DRIFT_ENABLED='vielleicht' is neither yes nor no — using the default (False)"]
 
 
 @pytest.mark.parametrize("name, read, value, expected", [
@@ -95,10 +95,11 @@ def test_settings_line_names_what_is_in_force(monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     monkeypatch.setenv("DRIFT_ENABLED", "false")
     monkeypatch.setenv("OVERNIGHT_EXPOSURE_CAP", "1,5")
+    monkeypatch.delenv("CORE_ENABLED")
     monkeypatch.delenv("PAUSED_STRATEGIES")
     monkeypatch.delenv("PAUSED_SYMBOLS")
     line = config.describe_settings()
-    assert "dry_run=False drift_enabled=False eod_flat_mode=off overnight_exposure_cap=1.5" in line
+    assert "dry_run=False drift_enabled=False core=URTH eod_flat_mode=off overnight_exposure_cap=1.5" in line
     assert ("paused_strategies=['mean_reversion', 'momentum_breakout', 'trend_following'] "
             "paused_symbols=['DB']") in line
 
@@ -126,7 +127,7 @@ def test_every_repository_variable_the_readme_names_reaches_the_bot():
     named = set(re.findall(r"Repo-Variable `([A-Z_]+)`", readme))
     listed = re.search(r"Der Bot liest nur\s+(.*?)\.", readme, re.S)
     named |= set(re.findall(r"`([A-Z_]+)`", listed.group(1)))
-    assert named == {"DRY_RUN", "EOD_FLAT_MODE", "DRIFT_ENABLED", "OVERNIGHT_EXPOSURE_CAP"}
+    assert named == {"DRY_RUN", "EOD_FLAT_MODE", "DRIFT_ENABLED", "CORE_ENABLED", "OVERNIGHT_EXPOSURE_CAP"}
     for name in named:
         assert f"vars.{name}" in env.get(name, ""), f"{name} is documented but not passed to the loop job"
 

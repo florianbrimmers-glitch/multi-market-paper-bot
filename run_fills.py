@@ -177,12 +177,13 @@ def pnl(since: str = "2026-10-12") -> None:
     realised, lots = ledger(fills)
     mr = {i.position_symbol for i in config.INSTRUMENTS if i.strategy == "mean_reversion"}
     own = {i.position_symbol for i in config.INSTRUMENTS}
-    group = lambda s: "Mean Reversion" if s in mr else "andere eigene Märkte" if s in own else "Earnings Drift"
+    group = lambda s: ("ETF-Grundlage" if s == config.CORE_SYMBOL else "Mean Reversion" if s in mr
+                       else "andere eigene Märkte" if s in own else "Earnings Drift")
     print(f"Ergebnis nach Strategie (Papiergeld), aus {len(fills)} Ausführungen bei Alpaca\n")
     print(f"| Strategie | realisiert seit Start | realisiert seit {since[8:]}.{since[5:7]}. | offen (Buchgewinn) | Verkäufe seit {since[8:]}.{since[5:7]}. |")
     print("|---|---|---|---|---|")
     tot_all = tot_since = tot_open = 0.0
-    for g in ("Mean Reversion", "Earnings Drift", "andere eigene Märkte"):
+    for g in ("ETF-Grundlage", "Mean Reversion", "Earnings Drift", "andere eigene Märkte"):
         a = sum(v for d, s, v in realised if group(s) == g)
         b = [v for d, s, v in realised if group(s) == g and d >= since]
         o = sum(p.unrealized_pl for s, p in positions.items() if group(s) == g)
